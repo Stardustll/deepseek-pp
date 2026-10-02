@@ -164,6 +164,7 @@ export default function ChatPage() {
   const [conversationList, setConversationList] = useState<DeepSeekConversationSummary[] | null>(null);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [restoringTranscript, setRestoringTranscript] = useState(false);
   const localTargetIdRef = useRef<string>(resolveLocalChatTargetId());
   const { confirm, node: confirmNode } = useConfirm();
@@ -411,6 +412,41 @@ export default function ChatPage() {
   }, [messages, scrollMessagesToBottom]);
 
   /**
+   * Dismisses the mode popover on an outside pointer press or Escape.
+   *
+   * Listeners only exist while the menu is open, and pointerdown (not click) is
+   * used so the menu closes on press without also swallowing the press that a
+   * following click would need.
+   */
+  useEffect(() => {
+    if (!modeMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && modeMenuRef.current?.contains(target)) return;
+      setModeMenuOpen(false);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setModeMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [modeMenuOpen]);
+
+  // Escape also dismisses the conversation picker.
+  useEffect(() => {
+    if (!conversationPickerOpen) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setConversationPickerOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [conversationPickerOpen]);
+
+  /**
    * Restores the transcript for the current target.
    *
    * A bound conversation reads the account's own history, so page-side turns are
@@ -423,17 +459,27 @@ export default function ChatPage() {
     let cancelled = false;
     const targetId = boundConversation.conversationId;
 
+    // A restore that lands after the user already started typing or sent a turn
+    // must not replace what is on screen. Read-only reads can take a while on a
+    // long conversation, so this is a real window, not a theoretical one.
+    const superseded = () => cancelled || messagesRef.current.length > 0;
+
+    const applyRestored = (restored: ChatMessageType[]): boolean => {
+      if (superseded()) return false;
+      messagesRef.current = restored;
+      setMessages(restored);
+      return true;
+    };
+
     const restoreFromLocalRecord = async () => {
       const state = await getChatRecordState();
-      if (cancelled) return;
+      if (superseded()) return;
       const record = state.records[targetId ?? localTargetIdRef.current];
-      const restored: ChatMessageType[] = (record?.messages ?? []).map((message) => ({
+      applyRestored((record?.messages ?? []).map((message) => ({
         role: message.role,
         text: message.text,
         ...(message.reasoningText ? { reasoningText: message.reasoningText } : {}),
-      }));
-      messagesRef.current = restored;
-      setMessages(restored);
+      })));
     };
 
     const run = async () => {
@@ -442,11 +488,8 @@ export default function ChatPage() {
         if (targetId) {
           try {
             const history = await chatController.loadConversationMessages(targetId);
-            if (cancelled) return;
-            const restored = history.map(toChatMessage);
-            messagesRef.current = restored;
-            setMessages(restored);
-            return;
+            if (applyRestored(history.map(toChatMessage))) return;
+            if (superseded()) return;
           } catch (historyError) {
             // Fall through to the retained record; a failed read must not blank
             // the transcript.
@@ -1189,7 +1232,7 @@ export default function ChatPage() {
           <div className="ds-chat-composer-actions">
             <div className="ds-chat-composer-lead">
               {webControlsEnabled && (
-                <div className="ds-chat-mode-control">
+                <div className="ds-chat-mode-control" ref={modeMenuRef}>
                   <button
                     type="button"
                     disabled={isStreaming}

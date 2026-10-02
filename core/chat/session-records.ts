@@ -125,13 +125,6 @@ export async function saveChatRecord(input: {
   });
 }
 
-/** Removes every retained transcript. Used by the explicit "clear" affordance. */
-export async function clearChatRecords(): Promise<void> {
-  await recordsQueue.run(async () => {
-    await chrome.storage.local.remove(STORAGE_KEY);
-  });
-}
-
 /**
  * Reads a stored value back into the state shape.
  *
