@@ -303,6 +303,59 @@ describe('interactive chat coordinator', () => {
     await waitForCall(dependencies.markChatLoopFinished);
   });
 
+  it('re-targets the bound conversation every turn instead of trusting the cached session', async () => {
+    // `chatSessionId` is cached across turns and is normally cleared by
+    // CHAT_NEW_SESSION. If that call fails the cache would still hold the
+    // previous conversation, so a turn must re-derive its target from the
+    // binding rather than post into the wrong conversation.
+    const dependencies = createChatDependencies();
+    const bound = { conversationId: 'conv-first' as string | null, title: null, boundAt: 1 };
+    vi.mocked(dependencies.getBoundConversation).mockImplementation(async () => ({ ...bound }));
+    vi.mocked(dependencies.resolveConversationLeafMessageId).mockResolvedValue(7);
+    vi.mocked(dependencies.submitWebPrompt).mockImplementation(async () => modelTurn('done', 101));
+    const service = createChatRuntimeService(dependencies);
+
+    await expect(service.submitPrompt({ text: 'first', refFileIds: [] }, 17)).resolves.toEqual({ ok: true });
+    await waitForCalls(dependencies.submitWebPrompt, 1);
+    expect(vi.mocked(dependencies.submitWebPrompt).mock.calls[0]![0])
+      .toMatchObject({ chatSessionId: 'conv-first' });
+
+    // The user binds a different conversation but the background session was
+    // never reset (the sidepanel's reset call failed).
+    bound.conversationId = 'conv-second';
+
+    await expect(service.submitPrompt({ text: 'second', refFileIds: [] }, 17)).resolves.toEqual({ ok: true });
+    await waitForCalls(dependencies.submitWebPrompt, 2);
+    expect(vi.mocked(dependencies.submitWebPrompt).mock.calls[1]![0])
+      .toMatchObject({ chatSessionId: 'conv-second' });
+    // Switching targets must not inherit the previous conversation's chain leaf.
+    expect(vi.mocked(dependencies.resolveConversationLeafMessageId))
+      .toHaveBeenLastCalledWith('conv-second', expect.anything(), expect.anything());
+    expect(dependencies.createChatSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps the same conversation across turns without re-resolving its chain leaf', async () => {
+    const dependencies = createChatDependencies();
+    vi.mocked(dependencies.getBoundConversation).mockResolvedValue({
+      conversationId: 'conv-stable',
+      title: null,
+      boundAt: 1,
+    });
+    vi.mocked(dependencies.resolveConversationLeafMessageId).mockResolvedValue(3);
+    vi.mocked(dependencies.submitWebPrompt).mockImplementation(async () => modelTurn('done', 101));
+    const service = createChatRuntimeService(dependencies);
+
+    await service.submitPrompt({ text: 'one', refFileIds: [] }, 17);
+    await waitForCalls(dependencies.submitWebPrompt, 1);
+    await service.submitPrompt({ text: 'two', refFileIds: [] }, 17);
+    await waitForCalls(dependencies.submitWebPrompt, 2);
+
+    // The chain leaf is resolved once; later turns reuse the cached chain state.
+    expect(dependencies.resolveConversationLeafMessageId).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(dependencies.submitWebPrompt).mock.calls[1]![0])
+      .toMatchObject({ chatSessionId: 'conv-stable' });
+  });
+
   it('rejects concurrent turns and prevents late chunks after a session reset', async () => {
     const dependencies = createChatDependencies();
     let firstCallbacks: { onTextChunk?(text: string, fullText: string): void } | undefined;

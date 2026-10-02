@@ -348,24 +348,39 @@ export function createChatRuntimeService(
       return;
     }
 
-    if (!chatSessionId) {
-      // A bound conversation means the user asked the sidepanel to post into an
-      // existing DeepSeek conversation instead of owning a new one. The chain
-      // leaf comes from history because this process did not create the session.
-      const bound = await dependencies.getBoundConversation();
-      assertTurnActive(turn);
-      if (bound.conversationId) {
+    // The binding is authoritative for EVERY turn, not just the first one.
+    //
+    // `chatSessionId` is cached across turns and is normally only cleared by the
+    // sidepanel calling CHAT_NEW_SESSION. If that call fails, or the binding
+    // changed some other way, the cache would still hold the previous
+    // conversation and this turn would silently post into the WRONG one. So the
+    // target is re-derived each turn: same target keeps the cached chain state
+    // (parent message, official-API history), a different target drops it.
+    const bound = await dependencies.getBoundConversation();
+    assertTurnActive(turn);
+    const targetConversationId = bound.conversationId;
+
+    if (targetConversationId) {
+      if (chatSessionId !== targetConversationId) {
+        // Switching targets discards the old chain: its parent message belongs to
+        // a different conversation and would corrupt the new one.
+        chatSessionId = null;
+        chatParentMessageId = null;
+        officialApiChatMessages = [];
+      }
+      if (!chatSessionId) {
+        // The chain leaf comes from history because this process did not create
+        // the conversation.
         const leafMessageId = await dependencies.resolveConversationLeafMessageId(
-          bound.conversationId,
+          targetConversationId,
           headers,
           turn.controller.signal,
         );
         assertTurnActive(turn);
-        chatSessionId = bound.conversationId;
+        chatSessionId = targetConversationId;
         chatParentMessageId = leafMessageId;
       }
-    }
-    if (!chatSessionId) {
+    } else if (!chatSessionId) {
       const nextSessionId = await dependencies.createChatSession(
         headers,
         turn.controller.signal,
