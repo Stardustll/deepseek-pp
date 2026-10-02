@@ -47,6 +47,8 @@ beforeEach(() => {
             ? { deepseek_pp_chat_enabled: true }
             : {}
         )),
+        // App persists the active tab, so the stub needs a writer.
+        set: vi.fn(async () => undefined),
         remove: vi.fn(async () => {}),
       },
       onChanged: {
@@ -69,6 +71,26 @@ afterEach(() => {
 });
 
 describe('sidepanel navigation', () => {
+  it('reopens on the tab the sidepanel was last on', async () => {
+    // chrome.storage survives the sidepanel document being destroyed, so the
+    // stored tab is what stops every reopen from snapping back to Chat.
+    stubStoredTab('projects');
+
+    await renderApp();
+    await vi.waitFor(() => {
+      expect(container.querySelector('.side-tab-active')?.textContent).toContain('项目');
+    });
+  });
+
+  it('ignores an unknown stored tab and falls back to Chat', async () => {
+    stubStoredTab('not-a-tab');
+
+    await renderApp();
+    await vi.waitFor(() => {
+      expect(container.querySelector('.side-tab-active')?.textContent).toContain('对话');
+    });
+  });
+
   it('keeps memory/saved under Library and preset/automation under Capabilities', async () => {
     await renderApp();
 
@@ -167,6 +189,31 @@ describe('sidepanel navigation', () => {
 
 async function renderApp() {
   await renderElement(React.createElement(App));
+}
+
+/** Re-stubs storage so `deepseek_pp_sidepanel_tab` reads back as `tab`. */
+function stubStoredTab(tab: string) {
+  const current = (globalThis as { chrome?: { storage?: { local?: object } } }).chrome;
+  vi.stubGlobal('chrome', {
+    ...current,
+    storage: {
+      local: {
+        get: vi.fn(async (key: string) => (
+          key === 'deepseek_pp_chat_enabled'
+            ? { deepseek_pp_chat_enabled: true }
+            : key === 'deepseek_pp_sidepanel_tab'
+              ? { deepseek_pp_sidepanel_tab: tab }
+              : {}
+        )),
+        set: vi.fn(async () => undefined),
+        remove: vi.fn(async () => {}),
+      },
+      onChanged: {
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      },
+    },
+  });
 }
 
 async function renderElement(element: React.ReactElement) {

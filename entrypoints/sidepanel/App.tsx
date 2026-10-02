@@ -12,6 +12,22 @@ import { setPendingText } from './pending-text';
 
 type Tab = 'chat' | 'library' | 'projects' | 'capabilities' | 'settings';
 
+const TAB_STORAGE_KEY = 'deepseek_pp_sidepanel_tab';
+const TABS_SET: readonly Tab[] = ['chat', 'library', 'projects', 'capabilities', 'settings'];
+
+/**
+ * The tab the sidepanel was last on.
+ *
+ * chrome.storage (not sessionStorage) so it survives the sidepanel document
+ * being destroyed when it is closed — reopening lands where the user left off
+ * instead of always snapping back to Chat.
+ */
+function readStoredTab(value: unknown): Tab | null {
+  return typeof value === 'string' && (TABS_SET as readonly string[]).includes(value)
+    ? value as Tab
+    : null;
+}
+
 const LibraryPage = lazy(() => import('./pages/LibraryPage'));
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
@@ -33,7 +49,35 @@ export default function App() {
   const isFloatingChat = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('surface') === 'floating-chat';
   const [tab, setTab] = useState<Tab>('chat');
+  // Guards the persist effect until the stored tab has been read, so the initial
+  // 'chat' default cannot overwrite the user's last tab before it loads.
+  const [tabRestored, setTabRestored] = useState(false);
   const [chatEnabled, setChatEnabledState] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    chrome.storage.local.get(TAB_STORAGE_KEY)
+      .then((data: Record<string, unknown>) => {
+        if (cancelled) return;
+        const stored = readStoredTab(data[TAB_STORAGE_KEY]);
+        if (stored) setTab(stored);
+      })
+      .catch((error: unknown) => {
+        console.error('[DeepSeek++] sidepanel tab restore failed', error);
+      })
+      .finally(() => {
+        if (!cancelled) setTabRestored(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!tabRestored) return;
+    // Best effort: a failed write must not break tab switching.
+    void chrome.storage.local.set({ [TAB_STORAGE_KEY]: tab }).catch((error: unknown) => {
+      console.error('[DeepSeek++] sidepanel tab persist failed', error);
+    });
+  }, [tab, tabRestored]);
 
   useEffect(() => {
     getChatEnabled().then(setChatEnabledState);
