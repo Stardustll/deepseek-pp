@@ -780,6 +780,8 @@ export const sidepanel = {
     conversationClose: 'Hide conversation list',
     conversationUnbind: 'Start a new conversation instead',
     conversationPickerEmpty: 'No conversations in the DeepSeek account yet',
+    conversationFilterPlaceholder: 'Filter conversations by title',
+    conversationFilterNoMatch: 'No matching conversations',
     conversationPickerFailed: 'Could not read web conversations: {error}',
     conversationPickerCurrent: 'Open on the page',
     conversationPickerBound: 'Bound in sidepanel',

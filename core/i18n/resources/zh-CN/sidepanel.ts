@@ -780,6 +780,8 @@ export const sidepanel = {
     conversationClose: '收起会话列表',
     conversationUnbind: '改为新建会话',
     conversationPickerEmpty: '官网账号里还没有可用的会话',
+    conversationFilterPlaceholder: '按标题筛选会话',
+    conversationFilterNoMatch: '没有匹配的会话',
     conversationPickerFailed: '读取官网会话失败：{error}',
     conversationPickerCurrent: '官网当前打开',
     conversationPickerBound: '侧边栏已绑定',

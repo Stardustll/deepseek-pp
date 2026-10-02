@@ -1016,6 +1016,25 @@ input[type='range'] {
   gap: 2px;
 }
 
+/* Title filter for the conversation picker. Kept inside the scroll list so it
+   scrolls away with the rows rather than pinning. */
+.ds-chat-conversation-filter {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: 7px;
+  background: var(--ds-bg);
+  color: var(--ds-text);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.ds-chat-conversation-filter:focus {
+  border-color: var(--ds-selected-border);
+}
+
 .ds-chat-conversation-item {
   display: flex;
   align-items: center;

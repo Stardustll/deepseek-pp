@@ -970,6 +970,61 @@ describe('sidepanel interactions', () => {
     expect(container.textContent).toContain('我的会话');
   });
 
+  it('filters the conversation picker by title', async () => {
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      if (message.type === 'LIST_DEEPSEEK_CONVERSATIONS') {
+        return {
+          ok: true,
+          conversations: [
+            { id: 'c1', title: 'Alpha notes', pinned: false, updatedAt: null },
+            { id: 'c2', title: 'Beta design', pinned: false, updatedAt: null },
+            { id: 'c3', title: 'Gamma alpha', pinned: false, updatedAt: null },
+          ],
+        };
+      }
+      if (message.type === 'GET_CURRENT_DEEPSEEK_CONVERSATION') return { ok: false, error: 'none' };
+      return null;
+    });
+    stubChrome(sendMessage);
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+
+    const picker = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === '选择官网会话') as HTMLButtonElement;
+    await act(async () => {
+      picker.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushPromises();
+    expect(container.querySelectorAll('.ds-chat-conversation-item')).toHaveLength(3);
+
+    const filter = container.querySelector('.ds-chat-conversation-filter') as HTMLInputElement;
+    expect(filter).toBeTruthy();
+    await act(async () => {
+      setTextControlValue(filter, 'alpha');
+      filter.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // Case-insensitive, matches anywhere in the title.
+    const rows = Array.from(container.querySelectorAll('.ds-chat-conversation-item'));
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining('Alpha notes'),
+      expect.stringContaining('Gamma alpha'),
+    ]);
+
+    await act(async () => {
+      setTextControlValue(filter, 'nothing-matches');
+      filter.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(container.querySelectorAll('.ds-chat-conversation-item')).toHaveLength(0);
+    expect(container.textContent).toContain('没有匹配的会话');
+  });
+
   it('marks the bound conversation and the page-open one independently', async () => {
     const sendMessage = vi.fn(async (message: { type: string }) => {
       if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };

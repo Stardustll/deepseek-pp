@@ -164,6 +164,7 @@ export default function ChatPage() {
   const [conversationList, setConversationList] = useState<DeepSeekConversationSummary[] | null>(null);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
   const [pageConversationId, setPageConversationId] = useState<string | null>(null);
+  const [conversationFilter, setConversationFilter] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [restoringTranscript, setRestoringTranscript] = useState(false);
@@ -202,6 +203,15 @@ export default function ChatPage() {
     return map;
   }, [imageAttachments]);
   const uploadAcceptAttribute = buildUploadAcceptAttribute(uploadLimits.limits);
+  // Filtering is by title only; the id is shown as a fallback label but is not
+  // something a user searches for.
+  const filteredConversations = useMemo(() => {
+    if (!conversationList) return null;
+    const needle = conversationFilter.trim().toLowerCase();
+    if (!needle) return conversationList;
+    return conversationList.filter((conversation) =>
+      (conversation.title || conversation.id).toLowerCase().includes(needle));
+  }, [conversationList, conversationFilter]);
   const canSendMessage = !isStreaming && !hasUploadingImageAttachment && !hasFailedImageAttachment && !!inputText.trim();
 
   const scrollMessagesToBottom = useCallback(() => {
@@ -624,6 +634,7 @@ export default function ChatPage() {
     if (isStreaming) return;
     setConversationPickerOpen(true);
     setConversationListError(null);
+    setConversationFilter('');
     try {
       // The page's own open conversation is a separate fact from the sidepanel's
       // binding, so both marks can be shown at once.
@@ -1105,6 +1116,16 @@ export default function ChatPage() {
 
             {conversationPickerOpen && (
               <div className="ds-chat-conversation-list" role="listbox" aria-label={t('sidepanel.chatPage.conversationPick')}>
+                {conversationList && conversationList.length > 0 && (
+                  <input
+                    type="text"
+                    value={conversationFilter}
+                    onChange={(event) => setConversationFilter(event.target.value)}
+                    placeholder={t('sidepanel.chatPage.conversationFilterPlaceholder')}
+                    aria-label={t('sidepanel.chatPage.conversationFilterPlaceholder')}
+                    className="ds-chat-conversation-filter"
+                  />
+                )}
                 {conversationListError && (
                   <div className="ds-chat-conversation-empty">
                     {t('sidepanel.chatPage.conversationPickerFailed', { error: conversationListError })}
@@ -1118,7 +1139,12 @@ export default function ChatPage() {
                     {t('sidepanel.chatPage.conversationPickerEmpty')}
                   </div>
                 )}
-                {conversationList?.map((conversation) => {
+                {filteredConversations?.length === 0 && (conversationList?.length ?? 0) > 0 && !conversationListError && (
+                  <div className="ds-chat-conversation-empty">
+                    {t('sidepanel.chatPage.conversationFilterNoMatch')}
+                  </div>
+                )}
+                {filteredConversations?.map((conversation) => {
                   const bound = conversation.id === boundConversation.conversationId;
                   const openOnPage = conversation.id === pageConversationId;
                   return (
