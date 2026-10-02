@@ -722,6 +722,156 @@ describe('sidepanel interactions', () => {
     });
   });
 
+  it('restores the retained transcript for an unbound session on mount', async () => {
+    // The sidepanel used to start empty on every reload; a retained record must
+    // come back instead.
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      return null;
+    });
+    // sessionStorage drives the local target id the record is filed under.
+    window.sessionStorage.setItem('deepseek-pp.local-chat-target', 'local-test-target');
+    stubChrome(sendMessage, {
+      deepseek_pp_chat_records: {
+        schemaVersion: 1,
+        lastTargetId: 'local-test-target',
+        records: {
+          'local-test-target': {
+            targetId: 'local-test-target',
+            title: null,
+            updatedAt: 5,
+            messages: [
+              { role: 'user', text: '恢复的问题' },
+              { role: 'assistant', text: '恢复的回答', reasoningText: '恢复的思考' },
+            ],
+          },
+        },
+      },
+    });
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+    await flushPromises();
+
+    expect(container.textContent).toContain('恢复的问题');
+    expect(container.textContent).toContain('恢复的回答');
+    // The record belongs to this target, so no account history read is needed.
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES' }),
+    );
+  });
+
+  it('renders account history when the sidepanel is bound to a conversation', async () => {
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      if (message.type === 'GET_DEEPSEEK_CONVERSATION_MESSAGES') {
+        return {
+          ok: true,
+          messages: [
+            { role: 'user', text: '来自官网的问题', reasoning: null },
+            { role: 'assistant', text: '来自官网的回答', reasoning: '官网的思考' },
+          ],
+        };
+      }
+      return null;
+    });
+    stubChrome(sendMessage, {
+      deepseek_pp_bound_conversation: {
+        conversationId: 'conv-bound',
+        title: 'Bound',
+        boundAt: 1,
+      },
+    });
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES',
+      payload: { conversationId: 'conv-bound' },
+    });
+    expect(container.textContent).toContain('来自官网的问题');
+    expect(container.textContent).toContain('来自官网的回答');
+  });
+
+  it('does not let a slow history read overwrite a message the user already sent', async () => {
+    let resolveHistory!: (value: unknown) => void;
+    const history = new Promise((resolve) => { resolveHistory = resolve; });
+    const sendMessage = vi.fn((message: { type: string; payload?: unknown }) => {
+      if (message.type === 'GET_AUTH_STATUS') {
+        return Promise.resolve({ available: true, provider: 'deepseek-web' });
+      }
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return Promise.resolve({});
+      if (message.type === 'GET_MODEL_TYPE') return Promise.resolve(null);
+      if (message.type === 'GET_VOICE_SETTINGS') return Promise.resolve({});
+      if (message.type === 'GET_DEEPSEEK_CONVERSATION_MESSAGES') return history;
+      if (message.type === 'CHAT_SUBMIT_PROMPT') return Promise.resolve({ ok: true });
+      return Promise.resolve(null);
+    });
+    stubChrome(sendMessage, {
+      deepseek_pp_bound_conversation: { conversationId: 'conv-slow', title: null, boundAt: 1 },
+    });
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+
+    // User sends before the history read comes back.
+    await enterText('给 DeepSeek++ 发送消息', '我的新消息');
+    await clickButtonByLabel('发送');
+
+    resolveHistory({
+      ok: true,
+      messages: [{ role: 'user', text: '陈旧的官网历史', reasoning: null }],
+    });
+    await flushPromises();
+    await flushPromises();
+
+    expect(container.textContent).toContain('我的新消息');
+    expect(container.textContent).not.toContain('陈旧的官网历史');
+  });
+
+  it('dismisses the mode popover on Escape and on an outside press', async () => {
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      return null;
+    });
+    stubChrome(sendMessage);
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+
+    const trigger = container.querySelector('.ds-chat-mode-trigger') as HTMLButtonElement;
+    const openMenu = async () => {
+      await act(async () => {
+        trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    };
+
+    await openMenu();
+    expect(container.querySelectorAll('.ds-toggle-button')).toHaveLength(2);
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(container.querySelectorAll('.ds-toggle-button')).toHaveLength(0);
+
+    await openMenu();
+    expect(container.querySelectorAll('.ds-toggle-button')).toHaveLength(2);
+    await act(async () => {
+      document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    });
+    expect(container.querySelectorAll('.ds-toggle-button')).toHaveLength(0);
+  });
+
   it('waits for new-session acknowledgement before clearing pending chat UI', async () => {
     let resolveReset!: (value: { ok: true }) => void;
     const resetAck = new Promise<{ ok: true }>((resolve) => {
@@ -991,7 +1141,12 @@ async function renderElement(element: React.ReactElement) {
   });
 }
 
-function stubChrome(sendMessage: ReturnType<typeof vi.fn>) {
+function stubChrome(
+  sendMessage: ReturnType<typeof vi.fn>,
+  storageSeed: Record<string, unknown> = {},
+) {
+  const storageData: Record<string, unknown> = { ...storageSeed };
+  const storageWrites: Array<Record<string, unknown>> = [];
   vi.stubGlobal('chrome', {
     runtime: {
       sendMessage,
@@ -1004,12 +1159,19 @@ function stubChrome(sendMessage: ReturnType<typeof vi.fn>) {
         }),
       },
     },
-    // ChatPage reads the web-chat mode options from extension storage and
-    // mirrors them across sidepanel instances, so the stub needs both surfaces.
+    // ChatPage reads the web-chat mode options and the retained transcripts from
+    // extension storage and mirrors them across sidepanel instances, so the stub
+    // needs both surfaces and has to remember writes.
     storage: {
       local: {
-        get: vi.fn(async () => ({})),
-        set: vi.fn(async () => undefined),
+        get: vi.fn(async () => ({ ...storageData })),
+        set: vi.fn(async (patch: Record<string, unknown>) => {
+          Object.assign(storageData, patch);
+          storageWrites.push(patch);
+        }),
+        remove: vi.fn(async (key: string) => {
+          delete storageData[key];
+        }),
       },
       onChanged: {
         addListener: vi.fn(),
@@ -1017,6 +1179,7 @@ function stubChrome(sendMessage: ReturnType<typeof vi.fn>) {
       },
     },
   });
+  return { storageData, storageWrites };
 }
 
 async function enterText(placeholder: string, value: string) {
