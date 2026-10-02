@@ -128,7 +128,7 @@ CLEAR_TOOL_CALL_HISTORY
 GET_PLATFORM_CAPABILITIES
 ```
 
-### R4.3 / #362 — DeepSeek, chat, multimodal, and export (17)
+### R4.3 / #362 — DeepSeek, chat, multimodal, and export (18)
 
 ```text
 GET_DEEPSEEK_API_KEY_STATUS
@@ -148,6 +148,7 @@ EXPORT_DEEPSEEK_CONVERSATIONS
 CANCEL_DEEPSEEK_EXPORT
 AUTH_STATUS_CHANGED
 LIST_DEEPSEEK_CONVERSATIONS
+GET_DEEPSEEK_CONVERSATION_MESSAGES
 ```
 
 ### R4.4 / #363 — Sync, automation, usage, scenario, and lifecycle closure (18)
@@ -175,7 +176,7 @@ EXPORT_DIAGNOSTIC_LOGS
 
 `TOOL_CALL_EXECUTED` and `MEMORIES_UPDATED` remain declared-only compatibility records. They are not counted in the 129 live command owners and R3.1 must classify them explicitly rather than invent handlers.
 
-## Live Background Router — 132
+## Live Background Router — 133
 
 ```text
 GET_MEMORIES
@@ -310,9 +311,10 @@ DELETE_AUTOMATION
 RUN_AUTOMATION_NOW
 SCENARIOS_UPDATED
 LIST_DEEPSEEK_CONVERSATIONS
+GET_DEEPSEEK_CONVERSATION_MESSAGES
 ```
 
-## Declared `MessageAction` Union — 101
+## Declared `MessageAction` Union — 102
 
 ```text
 GET_MEMORIES
@@ -416,6 +418,7 @@ SAVE_PET
 CLEAR_PET
 GET_MCP_REQUEST_TIMEOUT
 SET_MCP_REQUEST_TIMEOUT
+GET_DEEPSEEK_CONVERSATION_MESSAGES
 ```
 
 ## Live Router Only — 33

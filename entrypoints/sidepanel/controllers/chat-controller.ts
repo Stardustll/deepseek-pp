@@ -4,7 +4,10 @@ import {
   type OfficialApiChatConfig,
 } from '../../../core/chat/official-api-config';
 import type { DeepSeekUploadedFile } from '../../../core/deepseek/contracts';
-import type { DeepSeekConversationSummary } from '../../../core/messaging/deepseek-runtime-contracts';
+import type {
+  DeepSeekConversationMessage,
+  DeepSeekConversationSummary,
+} from '../../../core/messaging/deepseek-runtime-contracts';
 import type { ModelType } from '../../../core/types';
 import {
   DEFAULT_VOICE_SETTINGS,
@@ -54,6 +57,8 @@ export interface ChatController {
   newSession(): Promise<void>;
   /** One bounded page of the signed-in account's conversations (references only). */
   listConversations(): Promise<DeepSeekConversationSummary[]>;
+  /** Read one conversation's messages so the sidepanel can render real history. */
+  loadConversationMessages(conversationId: string): Promise<DeepSeekConversationMessage[]>;
   setWebModelType(modelType: ModelType): Promise<void>;
   uploadImage(payload: {
     dataUrl: string;
@@ -140,6 +145,10 @@ export function createChatController(
     listConversations: () => runtimeClient.request(
       { type: 'LIST_DEEPSEEK_CONVERSATIONS' },
       { decode: decodeConversationListResponse },
+    ),
+    loadConversationMessages: (conversationId) => runtimeClient.request(
+      { type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES', payload: { conversationId } },
+      { decode: decodeConversationMessagesResponse },
     ),
     async setWebModelType(modelType) {
       await runtimeClient.request(
@@ -242,6 +251,37 @@ function decodeConversationListResponse(value: unknown): DeepSeekConversationSum
       title: typeof conversation.title === 'string' ? conversation.title : '',
       pinned: conversation.pinned === true,
       updatedAt: typeof conversation.updatedAt === 'string' ? conversation.updatedAt : null,
+    };
+  });
+}
+
+function decodeConversationMessagesResponse(value: unknown): DeepSeekConversationMessage[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid GET_DEEPSEEK_CONVERSATION_MESSAGES response.');
+  }
+  const response = value as Record<string, unknown>;
+  if (response.ok !== true) {
+    throw new Error(
+      typeof response.error === 'string' && response.error
+        ? response.error
+        : 'Invalid GET_DEEPSEEK_CONVERSATION_MESSAGES response.',
+    );
+  }
+  if (!Array.isArray(response.messages)) {
+    throw new Error('GET_DEEPSEEK_CONVERSATION_MESSAGES response.messages is missing.');
+  }
+  return response.messages.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error(`GET_DEEPSEEK_CONVERSATION_MESSAGES response.messages[${index}] is invalid.`);
+    }
+    const message = entry as Record<string, unknown>;
+    if (message.role !== 'user' && message.role !== 'assistant') {
+      throw new Error(`GET_DEEPSEEK_CONVERSATION_MESSAGES response.messages[${index}].role is invalid.`);
+    }
+    return {
+      role: message.role,
+      text: typeof message.text === 'string' ? message.text : '',
+      reasoning: typeof message.reasoning === 'string' && message.reasoning ? message.reasoning : null,
     };
   });
 }

@@ -85,6 +85,23 @@
   --ds-type-reference: var(--ds-success);
   --ds-type-reference-bg: var(--ds-success-bg);
   --ds-type-reference-border: var(--ds-success-border);
+
+  /* DeepSeek page toggle-button tokens, mirrored from the live page stylesheet
+     (main.css `.ds-toggle-button` + `--dsw-static-deepseek-*`). The composer
+     mode switches deliberately reuse the page's own visual language so the
+     sidepanel reads as the same product instead of a lookalike. */
+  --ds-toggle-height: 34px;
+  --ds-toggle-radius: 18px;
+  --ds-toggle-padding: 0 12px;
+  --ds-toggle-font-size: 13px;
+  --ds-toggle-icon-size: 14px;
+  --ds-toggle-text: var(--ds-text);
+  --ds-toggle-text-selected: #3964fe;
+  --ds-toggle-border: rgba(0, 0, 0, 0.1);
+  --ds-toggle-border-selected: #b7c8fe;
+  --ds-toggle-bg-selected: #edf3fe;
+  --ds-toggle-bg-hover: rgba(38, 49, 72, 0.06);
+  --ds-toggle-bg-selected-hover: #e4edfd;
 }
 
 /* Dark theme — defined once, applied by both explicit override and system. */
@@ -141,6 +158,15 @@
   --ds-purple:            oklch(0.74 0.14 300);
   --ds-purple-bg:         oklch(0.33 0.05 300 / 0.45);
   --ds-purple-border:     oklch(0.56 0.10 300 / 0.5);
+
+  /* Dark counterparts of the page toggle tokens (deepseek-900/600/400). */
+  --ds-toggle-text: var(--ds-text);
+  --ds-toggle-text-selected: #679efe;
+  --ds-toggle-border: rgba(255, 255, 255, 0.12);
+  --ds-toggle-border-selected: #4868b2;
+  --ds-toggle-bg-selected: #283142;
+  --ds-toggle-bg-hover: rgba(255, 255, 255, 0.08);
+  --ds-toggle-bg-selected-hover: #34415b;
 }
 
 /* System-dark fallback when no explicit override is set. Mirrors [data-theme='dark']. */
@@ -190,6 +216,13 @@
     --ds-purple:            oklch(0.74 0.14 300);
     --ds-purple-bg:         oklch(0.33 0.05 300 / 0.45);
     --ds-purple-border:     oklch(0.56 0.10 300 / 0.5);
+    /* Mirror the explicit dark toggle tokens for the system-dark fallback. */
+    --ds-toggle-text-selected: #679efe;
+    --ds-toggle-border: rgba(255, 255, 255, 0.12);
+    --ds-toggle-border-selected: #4868b2;
+    --ds-toggle-bg-selected: #283142;
+    --ds-toggle-bg-hover: rgba(255, 255, 255, 0.08);
+    --ds-toggle-bg-selected-hover: #34415b;
   }
 }
 
@@ -1031,6 +1064,127 @@ input[type='range'] {
   padding: 8px;
   font-size: 11px;
   color: var(--ds-text-tertiary);
+}
+
+/* Shown while a target's transcript is being restored, so an empty chat is
+   never mistaken for "this conversation has no messages". */
+.ds-chat-restoring {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--ds-text-tertiary);
+}
+
+/* Composer bottom-left cluster: a settings trigger that reveals the two mode
+   switches. The switches reuse the DeepSeek page's own `.ds-toggle-button`
+   geometry and palette (see --ds-toggle-* above). */
+.ds-chat-composer-lead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ds-chat-mode-control {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.ds-chat-mode-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ds-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.ds-chat-mode-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ds-chat-mode-trigger:hover:not(:disabled),
+.ds-chat-mode-trigger-open {
+  background: var(--ds-toggle-bg-hover);
+  color: var(--ds-text);
+}
+
+.ds-chat-mode-trigger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ds-chat-mode-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: 14px;
+  background: var(--ds-card);
+  box-shadow: var(--ds-shadow-lg);
+}
+
+/* Mirrors the page's `.ds-toggle-button` (34px tall, 18px radius, 13px/500). */
+.ds-toggle-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: var(--ds-toggle-height);
+  padding: var(--ds-toggle-padding);
+  border: 1px solid var(--ds-toggle-border);
+  border-radius: var(--ds-toggle-radius);
+  background: transparent;
+  color: var(--ds-toggle-text);
+  font: inherit;
+  font-size: var(--ds-toggle-font-size);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.ds-toggle-button__icon {
+  display: flex;
+  font-size: var(--ds-toggle-icon-size);
+}
+
+.ds-toggle-button__icon svg {
+  width: var(--ds-toggle-icon-size);
+  height: var(--ds-toggle-icon-size);
+}
+
+.ds-toggle-button:hover:not(:disabled) {
+  background-color: var(--ds-toggle-bg-hover);
+}
+
+.ds-toggle-button--selected {
+  border-color: var(--ds-toggle-border-selected);
+  background-color: var(--ds-toggle-bg-selected);
+  color: var(--ds-toggle-text-selected);
+}
+
+.ds-toggle-button--selected:hover:not(:disabled) {
+  background-color: var(--ds-toggle-bg-selected-hover);
+}
+
+.ds-toggle-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .ds-chat-messages {

@@ -597,13 +597,22 @@ describe('sidepanel interactions', () => {
     expect(sendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_MODEL_TYPE' }),
     );
-    expect(container.textContent).toContain('不联网');
-    expect(container.textContent).toContain('联网');
-    // Both toggles default to the released "off" behavior.
-    const segments = Array.from(container.querySelectorAll('.ds-chat-segment'));
-    expect(segments.length).toBeGreaterThan(0);
-    expect(segments.filter((segment) => segment.className.includes('ds-chat-segment-active')))
-      .toHaveLength(2);
+
+    // The two modes live behind the composer's bottom-left settings trigger and
+    // stay hidden until it is opened.
+    const trigger = container.querySelector('.ds-chat-mode-trigger') as HTMLButtonElement | null;
+    expect(trigger).toBeTruthy();
+    expect(container.querySelectorAll('.ds-toggle-button')).toHaveLength(0);
+
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const toggles = Array.from(container.querySelectorAll('.ds-toggle-button'));
+    expect(toggles).toHaveLength(2);
+    // Both default to the released "off" behavior, so neither is selected.
+    expect(toggles.filter((toggle) => toggle.className.includes('ds-toggle-button--selected')))
+      .toHaveLength(0);
   });
 
   it('scrolls to the updated message height after the lazy rich renderer commits', async () => {

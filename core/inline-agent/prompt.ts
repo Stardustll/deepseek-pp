@@ -83,7 +83,20 @@ export function isInlineAgentContinuationPrompt(content: string): boolean {
  * raw prompt text is intact and false positives are costlier.
  */
 export function isInlineAgentContinuationStructure(content: string): boolean {
-  return hasInlineAgentContinuationTags(content);
+  return hasInlineAgentContinuationTags(content) || isInlineAgentToolResultsTurn(content);
+}
+
+/**
+ * The extension's own tool-loop follow-up turn.
+ *
+ * `background.continueWithToolResults` wraps executed tool output in
+ * `[TOOL_RESULTS] ... [/TOOL_RESULTS]` before resubmitting, so the stored history
+ * contains these turns as user messages. The DeepSeek page never shows them, and
+ * a restored transcript must not either — they would appear as if the user typed
+ * raw tool output.
+ */
+export function isInlineAgentToolResultsTurn(content: string): boolean {
+  return content.includes('[TOOL_RESULTS]') && content.includes('[/TOOL_RESULTS]');
 }
 
 function getTaskCompleteSummary(body: string): string {

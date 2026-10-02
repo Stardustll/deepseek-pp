@@ -637,6 +637,7 @@ const runtimeCommandRegistry = createRuntimeCommandRegistry({
         getExtensionVersion,
         createExportId: () => crypto.randomUUID(),
         loadClientHeaders: loadOrRefreshClientHeaders,
+        getToolDescriptors: getRuntimeToolDescriptors,
         createTransport: ({ baseUrl, clientHeaders }) => (
           createDeepSeekConversationExportTransport({
             baseUrl,

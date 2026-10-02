@@ -48,7 +48,15 @@ import {
   normalizeBoundConversation,
   type BoundConversation,
 } from '../../../core/chat/conversation-binding';
-import type { DeepSeekConversationSummary } from '../../../core/messaging/deepseek-runtime-contracts';
+import type {
+  DeepSeekConversationMessage,
+  DeepSeekConversationSummary,
+} from '../../../core/messaging/deepseek-runtime-contracts';
+import {
+  getChatRecordState,
+  saveChatRecord,
+  type StoredChatMessage,
+} from '../../../core/chat/session-records';
 import type { ChatMessage as ChatMessageType, ModelType } from '../../../core/types';
 import AtFilePanel, { type AtAttachmentStatus } from '../components/AtFilePanel';
 import ChatMessage from '../components/ChatMessage';
@@ -96,6 +104,25 @@ interface VisionImageAttachment {
 const MAX_VISION_IMAGE_ATTACHMENTS = 4;
 
 /**
+ * Chat target for a sidepanel-owned session (no bound conversation). Kept in
+ * sessionStorage so a reload lands on the same local record, while a brand new
+ * sidepanel instance starts a fresh transcript.
+ */
+const LOCAL_CHAT_TARGET_STORAGE_KEY = 'deepseek-pp.local-chat-target';
+
+function resolveLocalChatTargetId(): string {
+  try {
+    const existing = window.sessionStorage.getItem(LOCAL_CHAT_TARGET_STORAGE_KEY);
+    if (existing) return existing;
+    const created = `local-${crypto.randomUUID?.() ?? String(Date.now())}`;
+    window.sessionStorage.setItem(LOCAL_CHAT_TARGET_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return `local-${String(Date.now())}`;
+  }
+}
+
+/**
  * Conservative limits in effect until the page's own config resolves. Using the
  * released image-only values keeps the picker usable immediately and makes a
  * slow or failed config read fall back rather than block uploads outright.
@@ -136,6 +163,9 @@ export default function ChatPage() {
   const [conversationPickerOpen, setConversationPickerOpen] = useState(false);
   const [conversationList, setConversationList] = useState<DeepSeekConversationSummary[] | null>(null);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [restoringTranscript, setRestoringTranscript] = useState(false);
+  const localTargetIdRef = useRef<string>(resolveLocalChatTargetId());
   const { confirm, node: confirmNode } = useConfirm();
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -354,6 +384,8 @@ export default function ChatPage() {
       if (msg.done) {
         setIsStreaming(false);
         clearImageAttachments();
+        // Retain the finished turn locally so a reload does not lose it.
+        persistTranscript(messagesRef.current);
         const currentVoiceSettings = voiceSettingsRef.current;
         if (currentVoiceSettings.readAloudEnabled && voiceCapabilities.speechSynthesis) {
           setTimeout(() => speakLatestAssistant(messagesRef.current, currentVoiceSettings), 0);
@@ -377,6 +409,67 @@ export default function ChatPage() {
   useEffect(() => {
     scrollMessagesToBottom();
   }, [messages, scrollMessagesToBottom]);
+
+  /**
+   * Restores the transcript for the current target.
+   *
+   * A bound conversation reads the account's own history, so page-side turns are
+   * included and the account stays authoritative. An unbound sidepanel session
+   * restores the locally retained record. Either failure falls back to the local
+   * record rather than showing an empty chat.
+   */
+  useEffect(() => {
+    if (!authStatus) return;
+    let cancelled = false;
+    const targetId = boundConversation.conversationId;
+
+    const restoreFromLocalRecord = async () => {
+      const state = await getChatRecordState();
+      if (cancelled) return;
+      const record = state.records[targetId ?? localTargetIdRef.current];
+      const restored: ChatMessageType[] = (record?.messages ?? []).map((message) => ({
+        role: message.role,
+        text: message.text,
+        ...(message.reasoningText ? { reasoningText: message.reasoningText } : {}),
+      }));
+      messagesRef.current = restored;
+      setMessages(restored);
+    };
+
+    const run = async () => {
+      setRestoringTranscript(true);
+      try {
+        if (targetId) {
+          try {
+            const history = await chatController.loadConversationMessages(targetId);
+            if (cancelled) return;
+            const restored = history.map(toChatMessage);
+            messagesRef.current = restored;
+            setMessages(restored);
+            return;
+          } catch (historyError) {
+            // Fall through to the retained record; a failed read must not blank
+            // the transcript.
+            console.error('[DeepSeek++] conversation history restore failed', historyError);
+          }
+        }
+        await restoreFromLocalRecord();
+      } catch (restoreError) {
+        if (!cancelled) setError(getRuntimeErrorMessage(restoreError));
+      } finally {
+        if (!cancelled) setRestoringTranscript(false);
+      }
+    };
+
+    void run();
+    return () => { cancelled = true; };
+    // Re-runs when the target changes (bind / unbind / first auth resolution).
+  }, [authStatus, boundConversation.conversationId]);
+
+  // Best-effort retention for a reload that happens mid-conversation.
+  useEffect(() => () => {
+    persistTranscript(messagesRef.current);
+  }, []);
 
   const saveChatConfig = async (patch: Partial<OfficialApiChatConfig>) => {
     const next = normalizeOfficialApiChatConfig({ ...chatConfig, ...patch });
@@ -428,12 +521,25 @@ export default function ChatPage() {
       });
       if (!ok) return;
     }
+    // Retain the transcript we are leaving behind under its own target.
+    persistTranscript(messagesRef.current);
     try {
       await chatController.newSession();
+      // A binding pins every send to one conversation, so "new session" has to
+      // release it; otherwise the next message would continue the bound chat.
+      if (boundConversationRef.current.conversationId) {
+        await clearBoundConversation();
+        setBoundConversation(UNBOUND_CONVERSATION);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return;
     }
+    // A fresh local target so the new conversation gets its own record.
+    localTargetIdRef.current = `local-${crypto.randomUUID?.() ?? String(Date.now())}`;
+    try {
+      window.sessionStorage.setItem(LOCAL_CHAT_TARGET_STORAGE_KEY, localTargetIdRef.current);
+    } catch {}
     resetLocalConversation();
   };
 
@@ -469,8 +575,22 @@ export default function ChatPage() {
 
   const bindConversationTarget = async (conversation: DeepSeekConversationSummary) => {
     if (isStreaming) return;
+    // Re-selecting the already-bound conversation must not clear the transcript:
+    // the target does not change, so the restore effect would not re-run and the
+    // chat would be left empty.
+    if (boundConversationRef.current.conversationId === conversation.id) {
+      setConversationPickerOpen(false);
+      setConversationList(null);
+      return;
+    }
+    // Keep the transcript we are navigating away from.
+    persistTranscript(messagesRef.current);
     try {
-      const bound = await bindConversation(conversation.id, conversation.title || null);
+      const bound = await bindConversation(conversation.id, conversation.title ?? null);
+      // Clear BEFORE publishing the new target: the restore effect below fills
+      // the transcript for the new target, so clearing afterwards would wipe
+      // whatever it just loaded.
+      resetLocalConversation();
       setBoundConversation(bound);
     } catch (err) {
       setError(t('sidepanel.chatPage.conversationBoundFailed', {
@@ -483,17 +603,19 @@ export default function ChatPage() {
       await chatController.newSession();
     } catch (err) {
       setError(getRuntimeErrorMessage(err));
-      return;
     }
-    resetLocalConversation();
     setConversationPickerOpen(false);
     setConversationList(null);
   };
 
   const unbindConversationTarget = async () => {
     if (isStreaming) return;
+    persistTranscript(messagesRef.current);
     try {
       await clearBoundConversation();
+      // Same ordering rule as binding: clear first, then publish the target so
+      // the restore effect owns what ends up on screen.
+      resetLocalConversation();
       setBoundConversation(UNBOUND_CONVERSATION);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -503,9 +625,7 @@ export default function ChatPage() {
       await chatController.newSession();
     } catch (err) {
       setError(getRuntimeErrorMessage(err));
-      return;
     }
-    resetLocalConversation();
     setConversationPickerOpen(false);
     setConversationList(null);
   };
@@ -530,6 +650,31 @@ export default function ChatPage() {
   const handleEffortChange = (reasoningEffort: OfficialDeepSeekReasoningEffort) => {
     if (!apiControlsEnabled || isStreaming || chatConfig.thinking !== 'enabled') return;
     void saveChatConfig({ reasoningEffort });
+  };
+
+  /**
+   * Which record the current transcript belongs to: the bound DeepSeek
+   * conversation, or this sidepanel instance's own local session.
+   */
+  const currentTargetId = () =>
+    boundConversationRef.current.conversationId ?? localTargetIdRef.current;
+
+  const persistTranscript = (messagesToStore: readonly ChatMessageType[]) => {
+    const stored: StoredChatMessage[] = messagesToStore
+      .filter((message) => message.text || message.reasoningText)
+      .map((message) => ({
+        role: message.role,
+        text: message.text,
+        ...(message.reasoningText ? { reasoningText: message.reasoningText } : {}),
+      }));
+    void saveChatRecord({
+      targetId: currentTargetId(),
+      title: boundConversationRef.current.title,
+      messages: stored,
+      updatedAt: Date.now(),
+    }).catch((storeError) => {
+      console.error('[DeepSeek++] chat record save failed', storeError);
+    });
   };
 
   const handleWebChatOptionChange = async (patch: Partial<WebChatOptions>) => {
@@ -856,49 +1001,6 @@ export default function ChatPage() {
         {webControlsEnabled && (
           <div className="ds-chat-config-panel">
             <div className="ds-chat-control-row">
-              <div className="ds-chat-control-group" aria-label={t('sidepanel.chatPage.thinkingLabel')}>
-                <button
-                  type="button"
-                  disabled={isStreaming}
-                  title={t('sidepanel.chatPage.webThinkingHint')}
-                  onClick={() => void handleWebChatOptionChange({ thinkingEnabled: false })}
-                  className={`ds-chat-segment${webChatOptions.thinkingEnabled ? '' : ' ds-chat-segment-active'}`}
-                >
-                  {t('sidepanel.chatPage.thinkingOff')}
-                </button>
-                <button
-                  type="button"
-                  disabled={isStreaming}
-                  title={t('sidepanel.chatPage.webThinkingHint')}
-                  onClick={() => void handleWebChatOptionChange({ thinkingEnabled: true })}
-                  className={`ds-chat-segment${webChatOptions.thinkingEnabled ? ' ds-chat-segment-active' : ''}`}
-                >
-                  {t('sidepanel.chatPage.thinkingOn')}
-                </button>
-              </div>
-              <div className="ds-chat-control-group" aria-label={t('sidepanel.chatPage.webSearchLabel')}>
-                <button
-                  type="button"
-                  disabled={isStreaming}
-                  title={t('sidepanel.chatPage.webSearchHint')}
-                  onClick={() => void handleWebChatOptionChange({ searchEnabled: false })}
-                  className={`ds-chat-segment${webChatOptions.searchEnabled ? '' : ' ds-chat-segment-active'}`}
-                >
-                  {t('sidepanel.chatPage.webSearchOff')}
-                </button>
-                <button
-                  type="button"
-                  disabled={isStreaming}
-                  title={t('sidepanel.chatPage.webSearchHint')}
-                  onClick={() => void handleWebChatOptionChange({ searchEnabled: true })}
-                  className={`ds-chat-segment${webChatOptions.searchEnabled ? ' ds-chat-segment-active' : ''}`}
-                >
-                  {t('sidepanel.chatPage.webSearchOn')}
-                </button>
-              </div>
-            </div>
-
-            <div className="ds-chat-control-row">
               <span className="ds-chat-current-config" title={boundConversation.title ?? undefined}>
                 {boundConversation.conversationId
                   ? t('sidepanel.chatPage.conversationBound')
@@ -982,7 +1084,11 @@ export default function ChatPage() {
       <div ref={listRef} className="ds-chat-messages">
         {confirmNode}
 
-        {messages.length === 0 && !isStreaming && (
+        {restoringTranscript && messages.length === 0 && (
+          <div className="ds-chat-restoring">{t('common.loading')}</div>
+        )}
+
+        {messages.length === 0 && !isStreaming && !restoringTranscript && (
           <div className="ds-chat-empty">
             <div className="ds-empty-state-icon">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1081,13 +1187,70 @@ export default function ChatPage() {
             </div>
           )}
           <div className="ds-chat-composer-actions">
-            <span className="ds-chat-current-config">
-              {apiControlsEnabled
-                ? getConfigLabel(chatConfig, t)
-                : webControlsEnabled
-                  ? getWebModelLabel(t)
-                  : t('sidepanel.chatPage.webProvider')}
-            </span>
+            <div className="ds-chat-composer-lead">
+              {webControlsEnabled && (
+                <div className="ds-chat-mode-control">
+                  <button
+                    type="button"
+                    disabled={isStreaming}
+                    aria-expanded={modeMenuOpen}
+                    aria-haspopup="true"
+                    onClick={() => setModeMenuOpen((open) => !open)}
+                    className={`ds-chat-mode-trigger${modeMenuOpen ? ' ds-chat-mode-trigger-open' : ''}`}
+                    title={t('sidepanel.chatPage.webModeLabel')}
+                    aria-label={t('sidepanel.chatPage.webModeLabel')}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.34 4.32c.43-1.76 2.9-1.76 3.32 0a1.72 1.72 0 0 0 2.57 1.07c1.54-.94 3.31.83 2.37 2.37a1.72 1.72 0 0 0 1.07 2.57c1.76.43 1.76 2.9 0 3.32a1.72 1.72 0 0 0-1.07 2.57c.94 1.54-.83 3.31-2.37 2.37a1.72 1.72 0 0 0-2.57 1.07c-.43 1.76-2.9 1.76-3.32 0a1.72 1.72 0 0 0-2.57-1.07c-1.54.94-3.31-.83-2.37-2.37a1.72 1.72 0 0 0-1.07-2.57c-1.76-.43-1.76-2.9 0-3.32a1.72 1.72 0 0 0 1.07-2.57c-.94-1.54.83-3.31 2.37-2.37.99.6 2.29.07 2.57-1.07z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
+                    </svg>
+                  </button>
+                  {modeMenuOpen && (
+                    <div className="ds-chat-mode-menu" role="group" aria-label={t('sidepanel.chatPage.webModeLabel')}>
+                      <button
+                        type="button"
+                        disabled={isStreaming}
+                        aria-pressed={webChatOptions.thinkingEnabled}
+                        onClick={() => void handleWebChatOptionChange({ thinkingEnabled: !webChatOptions.thinkingEnabled })}
+                        className={`ds-toggle-button${webChatOptions.thinkingEnabled ? ' ds-toggle-button--selected' : ''}`}
+                        title={t('sidepanel.chatPage.webThinkingHint')}
+                      >
+                        <span className="ds-toggle-button__icon">
+                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 1.6a4.4 4.4 0 0 0-2.6 7.95V11h5.2V9.55A4.4 4.4 0 0 0 8 1.6z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6.2 13.2h3.6M7 14.8h2" />
+                          </svg>
+                        </span>
+                        <span className="ds-toggle-button__label">{t('sidepanel.chatPage.thinkingOn')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isStreaming}
+                        aria-pressed={webChatOptions.searchEnabled}
+                        onClick={() => void handleWebChatOptionChange({ searchEnabled: !webChatOptions.searchEnabled })}
+                        className={`ds-toggle-button${webChatOptions.searchEnabled ? ' ds-toggle-button--selected' : ''}`}
+                        title={t('sidepanel.chatPage.webSearchHint')}
+                      >
+                        <span className="ds-toggle-button__icon">
+                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} aria-hidden="true">
+                            <circle cx="8" cy="8" r="6.2" />
+                            <path strokeLinecap="round" d="M1.8 8h12.4M8 1.8c1.6 1.7 2.4 3.9 2.4 6.2S9.6 12.5 8 14.2C6.4 12.5 5.6 10.3 5.6 8S6.4 3.5 8 1.8z" />
+                          </svg>
+                        </span>
+                        <span className="ds-toggle-button__label">{t('sidepanel.chatPage.webSearchOn')}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              <span className="ds-chat-current-config">
+                {apiControlsEnabled
+                  ? getConfigLabel(chatConfig, t)
+                  : webControlsEnabled
+                    ? getWebModelLabel(t)
+                    : t('sidepanel.chatPage.webProvider')}
+              </span>
+            </div>
             <div className="ds-chat-composer-buttons">
               {visionAttachmentsEnabled && (
                 <button
@@ -1149,6 +1312,14 @@ function ProviderBadge({ provider }: { provider: ChatProvider }) {
     ? t('sidepanel.chatPage.apiProvider')
     : t('sidepanel.chatPage.webProvider');
   return <span className="ds-chat-provider-badge">{label}</span>;
+}
+
+function toChatMessage(message: DeepSeekConversationMessage): ChatMessageType {
+  return {
+    role: message.role,
+    text: message.text,
+    ...(message.reasoning ? { reasoningText: message.reasoning } : {}),
+  };
 }
 
 function getWebModelLabel(

@@ -76,6 +76,21 @@ export interface DeepSeekConversationSummary {
   updatedAt: string | null;
 }
 
+/**
+ * One message of a DeepSeek conversation, reduced to what the sidepanel renders.
+ * `reasoning` carries THINK-fragment text so a restored transcript still shows
+ * the thinking block the page shows.
+ */
+export interface DeepSeekConversationMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  reasoning: string | null;
+}
+
+export interface DeepSeekConversationMessagesPayload {
+  conversationId: string;
+}
+
 export interface DeepSeekRuntimeCommandContracts {
   GET_DEEPSEEK_API_KEY_STATUS: {
     request: { type: 'GET_DEEPSEEK_API_KEY_STATUS' };
@@ -140,6 +155,10 @@ export interface DeepSeekRuntimeCommandContracts {
   LIST_DEEPSEEK_CONVERSATIONS: {
     request: DeclaredRuntimeRequest<'LIST_DEEPSEEK_CONVERSATIONS'>;
     response: { ok: true; conversations: DeepSeekConversationSummary[] } | DomainFailure;
+  };
+  GET_DEEPSEEK_CONVERSATION_MESSAGES: {
+    request: { type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES'; payload: DeepSeekConversationMessagesPayload };
+    response: { ok: true; messages: DeepSeekConversationMessage[] } | DomainFailure;
   };
   AUTH_STATUS_CHANGED: {
     request: { type: 'AUTH_STATUS_CHANGED' };

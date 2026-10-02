@@ -49,6 +49,7 @@ const R43_COMMANDS = [
   'EXPORT_DEEPSEEK_CONVERSATIONS',
   'CANCEL_DEEPSEEK_EXPORT',
   'LIST_DEEPSEEK_CONVERSATIONS',
+  'GET_DEEPSEEK_CONVERSATION_MESSAGES',
   'AUTH_STATUS_CHANGED',
 ] as const;
 
@@ -61,6 +62,7 @@ const R43_PAYLOAD_COMMANDS = [
   'SAVE_OFFICIAL_API_CHAT_CONFIG',
   'EXPORT_DEEPSEEK_CONVERSATIONS',
   'CANCEL_DEEPSEEK_EXPORT',
+  'GET_DEEPSEEK_CONVERSATION_MESSAGES',
 ] as const;
 
 const extensionContext: RuntimeMessageContext = {
@@ -74,7 +76,7 @@ const extensionContext: RuntimeMessageContext = {
 };
 
 describe('R4.3 DeepSeek runtime ownership', () => {
-  it('creates exactly the assigned 17 typed handlers and eight receiving decoders', () => {
+  it('creates exactly the assigned 18 typed handlers and nine receiving decoders', () => {
     const handlers = createDeepSeekRuntimeHandlers({
       auth: createAuthDependencies(),
       multimodal: createMultimodalDependencies(),
@@ -87,8 +89,8 @@ describe('R4.3 DeepSeek runtime ownership', () => {
     });
     const types = handlers.map((handler) => handler.type);
 
-    expect(types).toHaveLength(17);
-    expect(new Set(types).size).toBe(17);
+    expect(types).toHaveLength(18);
+    expect(new Set(types).size).toBe(18);
     expect([...types].sort()).toEqual([...R43_COMMANDS].sort());
     expect(Object.keys(DEEPSEEK_RUNTIME_PAYLOAD_DECODERS).sort())
       .toEqual([...R43_PAYLOAD_COMMANDS].sort());
@@ -787,6 +789,105 @@ describe('conversation export coordinator', () => {
     expect(JSON.stringify(result)).not.toContain('must not cross the boundary');
   });
 
+  it('strips browser-control tool XML even when that capability is currently disabled', async () => {
+    const dependencies = createExportDependencies();
+    // Live catalog omits browser control (it is off); the stored history still
+    // contains its calls, so cleanup must still recognize the tags.
+    vi.mocked(dependencies.getToolDescriptors).mockResolvedValue([]);
+    vi.mocked(dependencies.createTransport).mockReturnValue({
+      listSessions: vi.fn(async () => []),
+      fetchHistory: vi.fn(async () => ({
+        data: {
+          biz_data: {
+            chat_messages: [{
+              message_id: 1,
+              role: 'ASSISTANT',
+              content: 'let me look\n<browser_evaluate_script>\n{"script":"1+1"}\n</browser_evaluate_script>\ndone',
+            }],
+          },
+        },
+      })),
+      fetchFiles: vi.fn(async () => []),
+    });
+    const handlers = createConversationExportRuntimeHandlers(dependencies);
+
+    const result = await dispatch(handlers, {
+      type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES',
+      payload: { conversationId: 'conv-1' },
+    });
+
+    expect(JSON.stringify(result)).not.toContain('browser_evaluate_script');
+    expect(JSON.stringify(result)).toContain('let me look');
+  });
+
+  it('renders account history without the extension\'s own continuation turns', async () => {
+    const dependencies = createExportDependencies();
+    vi.mocked(dependencies.createTransport).mockReturnValue({
+      listSessions: vi.fn(async () => []),
+      fetchHistory: vi.fn(async () => ({
+        data: {
+          biz_data: {
+            chat_messages: [
+              { message_id: 1, role: 'USER', content: 'real question' },
+              {
+                message_id: 2,
+                role: 'ASSISTANT',
+                content: 'real answer',
+                fragments: [
+                  { type: 'THINK', content: 'weighing options' },
+                  { type: 'RESPONSE', content: 'real answer' },
+                ],
+              },
+              // The extension's own tool-loop round: the page hides these, so the
+              // restored transcript must too.
+              {
+                message_id: 3,
+                role: 'USER',
+                content: '<original_task>t</original_task>\n<tool_results>{"ok":true}</tool_results>',
+              },
+              {
+                message_id: 5,
+                role: 'USER',
+                content: '[TOOL_RESULTS]\n{"ok":true}\n[/TOOL_RESULTS]\n\n请根据上述工具执行结果继续回答。',
+              },
+              { message_id: 4, role: 'SYSTEM', content: 'internal' },
+            ],
+          },
+        },
+      })),
+      fetchFiles: vi.fn(async () => []),
+    });
+    const handlers = createConversationExportRuntimeHandlers(dependencies);
+
+    const result = await dispatch(handlers, {
+      type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES',
+      payload: { conversationId: 'conv-1' },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      messages: [
+        { role: 'user', text: 'real question', reasoning: null },
+        { role: 'assistant', text: 'real answer', reasoning: 'weighing options' },
+      ],
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('original_task');
+    expect(serialized).not.toContain('tool_results');
+    expect(serialized).not.toContain('TOOL_RESULTS');
+  });
+
+  it('rejects a blank conversation id before any auth or network work', async () => {
+    const dependencies = createExportDependencies();
+    const handlers = createConversationExportRuntimeHandlers(dependencies);
+
+    await expect(dispatch(handlers, {
+      type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES',
+      payload: { conversationId: '   ' },
+    })).rejects.toThrow(/conversationId/);
+    expect(dependencies.loadClientHeaders).not.toHaveBeenCalled();
+  });
+
   it('reports missing auth for the conversation list instead of an empty list', async () => {
     const dependencies = createExportDependencies();
     vi.mocked(dependencies.loadClientHeaders).mockResolvedValue(null);
@@ -887,6 +988,7 @@ function createExportDependencies(): ConversationExportRuntimeHandlerDependencie
     getExtensionVersion: vi.fn(() => '1.10.0'),
     createExportId: vi.fn(() => 'generated-export'),
     loadClientHeaders: vi.fn(async () => ({ Authorization: 'Bearer token' })),
+    getToolDescriptors: vi.fn(async () => []),
     createTransport: vi.fn(() => ({
       listSessions: vi.fn(async () => []),
       fetchHistory: vi.fn(async () => ({})),
