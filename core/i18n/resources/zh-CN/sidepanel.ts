@@ -781,6 +781,7 @@ export const sidepanel = {
     conversationPickerEmpty: '官网账号里还没有可用的会话',
     conversationPickerFailed: '读取官网会话失败：{error}',
     conversationPickerCurrent: '官网当前打开',
+    conversationPickerBound: '侧边栏已绑定',
     conversationBoundFailed: '绑定官网会话失败：{error}',
     conversationBindFailedFallback: '未知错误',
     webSearchLabel: '联网搜索',

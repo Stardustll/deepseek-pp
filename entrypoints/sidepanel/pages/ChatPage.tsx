@@ -163,6 +163,7 @@ export default function ChatPage() {
   const [conversationPickerOpen, setConversationPickerOpen] = useState(false);
   const [conversationList, setConversationList] = useState<DeepSeekConversationSummary[] | null>(null);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
+  const [pageConversationId, setPageConversationId] = useState<string | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [restoringTranscript, setRestoringTranscript] = useState(false);
@@ -609,7 +610,14 @@ export default function ChatPage() {
     setConversationPickerOpen(true);
     setConversationListError(null);
     try {
-      setConversationList(await chatController.listConversations());
+      // The page's own open conversation is a separate fact from the sidepanel's
+      // binding, so both marks can be shown at once.
+      const [conversations, currentPageId] = await Promise.all([
+        chatController.listConversations(),
+        chatController.loadCurrentPageConversationId().catch(() => null),
+      ]);
+      setConversationList(conversations);
+      setPageConversationId(currentPageId);
     } catch (err) {
       setConversationList(null);
       setConversationListError(err instanceof Error ? err.message : String(err));
@@ -1096,25 +1104,33 @@ export default function ChatPage() {
                   </div>
                 )}
                 {conversationList?.map((conversation) => {
-                  const active = conversation.id === boundConversation.conversationId;
+                  const bound = conversation.id === boundConversation.conversationId;
+                  const openOnPage = conversation.id === pageConversationId;
                   return (
                     <button
                       key={conversation.id}
                       type="button"
                       role="option"
-                      aria-selected={active}
+                      aria-selected={bound}
                       disabled={isStreaming}
                       onClick={() => void bindConversationTarget(conversation)}
-                      className={`ds-chat-conversation-item${active ? ' ds-chat-conversation-item-active' : ''}`}
+                      className={`ds-chat-conversation-item${bound ? ' ds-chat-conversation-item-active' : ''}`}
                     >
                       <span className="ds-chat-conversation-title">
                         {conversation.title || conversation.id}
                       </span>
-                      {active && (
-                        <span className="ds-chat-conversation-badge">
-                          {t('sidepanel.chatPage.conversationPickerCurrent')}
-                        </span>
-                      )}
+                      <span className="ds-chat-conversation-badges">
+                        {bound && (
+                          <span className="ds-chat-conversation-badge">
+                            {t('sidepanel.chatPage.conversationPickerBound')}
+                          </span>
+                        )}
+                        {openOnPage && (
+                          <span className="ds-chat-conversation-badge ds-chat-conversation-badge-page">
+                            {t('sidepanel.chatPage.conversationPickerCurrent')}
+                          </span>
+                        )}
+                      </span>
                     </button>
                   );
                 })}

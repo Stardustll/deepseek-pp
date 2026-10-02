@@ -59,6 +59,12 @@ export interface ChatController {
   listConversations(): Promise<DeepSeekConversationSummary[]>;
   /** Read one conversation's messages so the sidepanel can render real history. */
   loadConversationMessages(conversationId: string): Promise<DeepSeekConversationMessage[]>;
+  /**
+   * The conversation the DeepSeek PAGE currently has open, or null when the
+   * active tab is not on one. Used to mark it in the picker, which is a
+   * different thing from "the conversation the sidepanel is bound to".
+   */
+  loadCurrentPageConversationId(): Promise<string | null>;
   setWebModelType(modelType: ModelType): Promise<void>;
   uploadImage(payload: {
     dataUrl: string;
@@ -149,6 +155,10 @@ export function createChatController(
     loadConversationMessages: (conversationId) => runtimeClient.request(
       { type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES', payload: { conversationId } },
       { decode: decodeConversationMessagesResponse },
+    ),
+    loadCurrentPageConversationId: () => runtimeClient.request(
+      { type: 'GET_CURRENT_DEEPSEEK_CONVERSATION' },
+      { acceptFailure: true, decode: decodeCurrentPageConversationId },
     ),
     async setWebModelType(modelType) {
       await runtimeClient.request(
@@ -253,6 +263,24 @@ function decodeConversationListResponse(value: unknown): DeepSeekConversationSum
       updatedAt: typeof conversation.updatedAt === 'string' ? conversation.updatedAt : null,
     };
   });
+}
+
+/**
+ * The page's current conversation id, or null.
+ *
+ * The background reports `{ok:false, error:'no_active_deepseek_conversation'}`
+ * (or `no_current_conversation` when the tab has no conversation open) — both
+ * ordinary states here, where the picker simply shows no "open on page" mark,
+ * not failures to surface.
+ */
+function decodeCurrentPageConversationId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const response = value as Record<string, unknown>;
+  if (response.ok !== true) return null;
+  const conversation = response.conversation;
+  if (!conversation || typeof conversation !== 'object' || Array.isArray(conversation)) return null;
+  const id = (conversation as Record<string, unknown>).conversationId;
+  return typeof id === 'string' && id ? id : null;
 }
 
 function decodeConversationMessagesResponse(value: unknown): DeepSeekConversationMessage[] {

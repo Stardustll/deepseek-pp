@@ -781,6 +781,7 @@ export const sidepanel = {
     conversationPickerEmpty: 'No conversations in the DeepSeek account yet',
     conversationPickerFailed: 'Could not read web conversations: {error}',
     conversationPickerCurrent: 'Open on the page',
+    conversationPickerBound: 'Bound in sidepanel',
     conversationBoundFailed: 'Could not bind the web conversation: {error}',
     conversationBindFailedFallback: 'unknown error',
     webSearchLabel: 'Web search',

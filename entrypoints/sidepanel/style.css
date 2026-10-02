@@ -1060,6 +1060,18 @@ input[type='range'] {
   opacity: 0.8;
 }
 
+/* Two independent marks: which conversation the sidepanel posts into, and which
+   one the DeepSeek page has open. Both can apply to the same row. */
+.ds-chat-conversation-badges {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.ds-chat-conversation-badge-page {
+  color: var(--ds-text-tertiary);
+}
+
 .ds-chat-conversation-empty {
   padding: 8px;
   font-size: 11px;

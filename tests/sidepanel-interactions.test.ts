@@ -837,6 +837,55 @@ describe('sidepanel interactions', () => {
     expect(container.textContent).not.toContain('陈旧的官网历史');
   });
 
+  it('marks the bound conversation and the page-open one independently', async () => {
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      if (message.type === 'LIST_DEEPSEEK_CONVERSATIONS') {
+        return {
+          ok: true,
+          conversations: [
+            { id: 'conv-bound', title: 'Bound one', pinned: false, updatedAt: null },
+            { id: 'conv-page', title: 'Page one', pinned: false, updatedAt: null },
+          ],
+        };
+      }
+      if (message.type === 'GET_CURRENT_DEEPSEEK_CONVERSATION') {
+        return { ok: true, conversation: { conversationId: 'conv-page', title: 'Page one', url: 'u' } };
+      }
+      if (message.type === 'GET_DEEPSEEK_CONVERSATION_MESSAGES') {
+        return { ok: true, messages: [] };
+      }
+      return null;
+    });
+    stubChrome(sendMessage, {
+      deepseek_pp_bound_conversation: { conversationId: 'conv-bound', title: 'Bound one', boundAt: 1 },
+    });
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+
+    const trigger = container.querySelector('.ds-chat-mode-trigger') as HTMLButtonElement;
+    void trigger;
+    // Open the conversation picker.
+    const picker = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === '选择官网会话') as HTMLButtonElement;
+    await act(async () => {
+      picker.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushPromises();
+
+    const rows = Array.from(container.querySelectorAll('.ds-chat-conversation-item'));
+    expect(rows).toHaveLength(2);
+    // The bound row carries the bound mark, the page-open row its own.
+    expect(rows[0].textContent).toContain('侧边栏已绑定');
+    expect(rows[0].textContent).not.toContain('官网当前打开');
+    expect(rows[1].textContent).toContain('官网当前打开');
+    expect(rows[1].textContent).not.toContain('侧边栏已绑定');
+  });
+
   it('dismisses the mode popover on Escape and on an outside press', async () => {
     const sendMessage = vi.fn(async (message: { type: string }) => {
       if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
