@@ -764,6 +764,74 @@ describe('sidepanel interactions', () => {
     );
   });
 
+  it('restores the last local conversation when the sidepanel document is recreated', async () => {
+    // sessionStorage does not survive a sidepanel close/reopen, so the stored
+    // lastTargetId is what keeps the transcript from silently disappearing.
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      return null;
+    });
+    // A brand-new document: its sessionStorage target differs from the stored one.
+    window.sessionStorage.setItem('deepseek-pp.local-chat-target', 'local-fresh');
+    stubChrome(sendMessage, {
+      deepseek_pp_chat_records: {
+        schemaVersion: 1,
+        lastTargetId: 'local-previous',
+        records: {
+          'local-previous': {
+            targetId: 'local-previous',
+            title: null,
+            updatedAt: 9,
+            messages: [{ role: 'user', text: '上次会话的内容' }],
+          },
+        },
+      },
+    });
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+    await flushPromises();
+
+    expect(container.textContent).toContain('上次会话的内容');
+  });
+
+  it('does not adopt a conversation-bound record as the local target', async () => {
+    // A record filed under a DeepSeek conversation id belongs to that binding;
+    // adopting it while unbound would show one conversation's transcript while
+    // the sidepanel is actually posting to a new one.
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      return null;
+    });
+    window.sessionStorage.setItem('deepseek-pp.local-chat-target', 'local-fresh');
+    stubChrome(sendMessage, {
+      deepseek_pp_chat_records: {
+        schemaVersion: 1,
+        lastTargetId: 'conv-bound-earlier',
+        records: {
+          'conv-bound-earlier': {
+            targetId: 'conv-bound-earlier',
+            title: null,
+            updatedAt: 9,
+            messages: [{ role: 'user', text: '属于绑定会话的内容' }],
+          },
+        },
+      },
+    });
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+    await flushPromises();
+
+    expect(container.textContent).not.toContain('属于绑定会话的内容');
+  });
+
   it('renders account history when the sidepanel is bound to a conversation', async () => {
     const sendMessage = vi.fn(async (message: { type: string }) => {
       if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
@@ -835,6 +903,41 @@ describe('sidepanel interactions', () => {
 
     expect(container.textContent).toContain('我的新消息');
     expect(container.textContent).not.toContain('陈旧的官网历史');
+  });
+
+  it('retains the turn when it fails so a reload does not lose what the user typed', async () => {
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      if (message.type === 'CHAT_SUBMIT_PROMPT') return { ok: true };
+      return null;
+    });
+    window.sessionStorage.setItem('deepseek-pp.local-chat-target', 'local-fail');
+    const { storageData } = stubChrome(sendMessage);
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+
+    await enterText('给 DeepSeek++ 发送消息', '这条消息不能丢');
+    await clickButtonByLabel('发送');
+
+    await act(async () => {
+      runtimeListeners.forEach((listener) => listener({
+        type: 'CHAT_STREAM_CHUNK',
+        error: '后台连接失败',
+        done: true,
+      }));
+    });
+    await flushPromises();
+
+    expect(container.textContent).toContain('后台连接失败');
+    const stored = storageData.deepseek_pp_chat_records as {
+      records: Record<string, { messages: Array<{ text: string }> }>;
+    } | undefined;
+    expect(stored?.records['local-fail']?.messages.map((m) => m.text))
+      .toContain('这条消息不能丢');
   });
 
   it('marks the bound conversation and the page-open one independently', async () => {

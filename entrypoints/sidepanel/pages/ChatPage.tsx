@@ -380,6 +380,10 @@ export default function ChatPage() {
       if (msg.error) {
         setError(msg.error);
         setIsStreaming(false);
+        // Retain the turn even though it failed: the user's message is already
+        // in the transcript, and dropping it on reload would lose what they
+        // typed along with the error context.
+        persistTranscript(messagesRef.current);
         return;
       }
 
@@ -475,7 +479,12 @@ export default function ChatPage() {
     const restoreFromLocalRecord = async () => {
       const state = await getChatRecordState();
       if (superseded()) return;
-      const record = state.records[targetId ?? localTargetIdRef.current];
+      // `sessionStorage` is cleared when the sidepanel document is destroyed, so
+      // a close-then-reopen would otherwise land on a fresh local target and
+      // silently drop the transcript that is still on disk. The stored pointer
+      // is what makes reopen restore the previous conversation.
+      const stored = targetId ? null : resolveRestorableLocalTarget(state, localTargetIdRef.current);
+      const record = state.records[targetId ?? stored ?? localTargetIdRef.current];
       applyRestored((record?.messages ?? []).map((message) => ({
         role: message.role,
         text: message.text,
@@ -1371,6 +1380,25 @@ function ProviderBadge({ provider }: { provider: ChatProvider }) {
     ? t('sidepanel.chatPage.apiProvider')
     : t('sidepanel.chatPage.webProvider');
   return <span className="ds-chat-provider-badge">{label}</span>;
+}
+
+/**
+ * Picks the local target to restore for an unbound sidepanel.
+ *
+ * Only a sidepanel-owned target qualifies: a record filed under a DeepSeek
+ * conversation id belongs to a binding, and silently adopting it would show one
+ * conversation's transcript while the sidepanel is actually posting to a new
+ * one. Returns null when the stored pointer is not usable, in which case the
+ * caller keeps its own fresh local target.
+ */
+function resolveRestorableLocalTarget(
+  state: { records: Record<string, { messages: unknown[] }>; lastTargetId: string | null },
+  currentTargetId: string,
+): string | null {
+  const lastTargetId = state.lastTargetId;
+  if (!lastTargetId || lastTargetId === currentTargetId) return null;
+  if (!lastTargetId.startsWith('local-')) return null;
+  return state.records[lastTargetId] ? lastTargetId : null;
 }
 
 function toChatMessage(message: DeepSeekConversationMessage): ChatMessageType {
