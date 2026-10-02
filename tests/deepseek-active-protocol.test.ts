@@ -100,7 +100,11 @@ describe('active DeepSeek protocol codecs', () => {
     });
   });
 
-  it('preserves every released model alias and default', () => {
+  it('collapses every released model alias onto the single live model', () => {
+    // The page merged 快速/专家/识图 into one model; only `default` is still
+    // enabled/switchable in `__ds_remote_feature_store_model`. Thinking and
+    // search are compositor toggles now, so no alias may leak `expert` or
+    // `vision` back into `model_type`.
     expect([
       null,
       'unknown',
@@ -117,12 +121,12 @@ describe('active DeepSeek protocol codecs', () => {
       'default',
       'default',
       'default',
-      'expert',
-      'expert',
+      'default',
+      'default',
       'DEFAULT',
       'default',
-      'expert',
-      'vision',
+      'default',
+      'default',
     ]);
   });
 

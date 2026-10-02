@@ -229,6 +229,8 @@ import {
   uploadDeepSeekFile,
 } from '../core/deepseek/adapter';
 import { createDeepSeekAutomationClient } from '../core/deepseek/active-client';
+import type { ResolvedDeepSeekUploadLimits } from '../core/deepseek/upload-limits';
+import { readDeepSeekUploadLimits } from '../core/deepseek/upload-limits-storage';
 import { submitOfficialDeepSeekStreaming } from '../core/deepseek/official-api';
 import { createDeepSeekConversationExportTransport } from '../core/deepseek/conversation-export';
 import {
@@ -318,6 +320,8 @@ const chatRuntimeService = createChatRuntimeService({
   getOfficialApiChatConfig,
   loadClientHeaders: loadOrRefreshClientHeaders,
   getModelType,
+  loadUploadLimits: loadDeepSeekUploadLimits,
+  refreshUploadLimits: refreshDeepSeekPageUploadLimits,
   buildPrompt: buildSidepanelPrompt,
   executeToolCall: (call, options) => executeBackgroundRuntimeToolCall(
     call,
@@ -1022,6 +1026,36 @@ async function loadOrRefreshClientHeaders(preferredTabId?: number): Promise<Reco
 
   await refreshClientHeadersFromDeepSeekTabs(preferredTabId);
   return loadClientHeadersFromStorage();
+}
+
+/**
+ * Resolves the page's own upload limits from the extension-owned cache.
+ *
+ * The page publishes its file limits in a page-owned `localStorage` store that
+ * only the content script can read, so the content script caches the raw string
+ * and this reader validates it at the receiving boundary. A missing, stale, or
+ * unrecognized value falls back to the conservative released limits and is
+ * logged — the fallback never widens what we accept.
+ */
+async function loadDeepSeekUploadLimits(): Promise<ResolvedDeepSeekUploadLimits> {
+  const resolved = await readDeepSeekUploadLimits();
+  if (resolved.source === 'fallback' && resolved.fallbackReason) {
+    console.warn('[DeepSeek++] using fallback upload limits:', resolved.fallbackReason);
+  }
+  return resolved;
+}
+
+/**
+ * Asks a DeepSeek tab to re-cache the page's current client headers and upload
+ * limits. Both ride the same released `REFRESH_DEEPSEEK_AUTH` tab RPC so the
+ * runtime command surface stays frozen.
+ */
+async function refreshDeepSeekPageUploadLimits(preferredTabId?: number): Promise<boolean> {
+  const tabs = await getDeepSeekTabsForAuthRefresh(preferredTabId);
+  return refreshDeepSeekAuthFromTabs(tabs, {
+    sendMessage: (tabId) => chrome.tabs.sendMessage(tabId, REFRESH_AUTH_MESSAGE),
+    reportError: reportBackgroundStartupError,
+  });
 }
 
 async function refreshClientHeadersFromDeepSeekTabs(preferredTabId?: number): Promise<boolean> {

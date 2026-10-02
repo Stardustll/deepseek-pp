@@ -69,7 +69,6 @@ export interface DeepSeekCompletionRequestInput {
 }
 
 const DEFAULT_MODEL_TYPE = 'default';
-const SUPPORTED_MODEL_TYPES = new Set(['DEFAULT', 'default', 'expert', 'vision']);
 
 export function createDeepSeekRouteUrl(
   route: DeepSeekWebRouteName,
@@ -178,11 +177,23 @@ export function encodeHistoryRequest(
   }, { searchParams: { chat_session_id: chatSessionId } });
 }
 
+/**
+ * Collapses every released model alias onto the single model the live DeepSeek
+ * web client still accepts.
+ *
+ * The page merged its fast / expert / image modes into one image-and-text
+ * model and reads thinking/search as compositor toggles instead. Confirmed
+ * against the live page's persisted remote-feature model store: only the
+ * `default` entry is enabled and switchable; `expert` and `vision` are both
+ * disabled and unswitchable. `model_type` therefore always resolves to
+ * `'default'`, and `thinking_enabled` / `search_enabled` carry the mode
+ * intent. The alias tolerance stays so historic stored values and older
+ * payloads keep decoding instead of leaking a now-rejected `model_type` to
+ * DeepSeek.
+ */
 export function normalizeDeepSeekModelType(modelType: string | null): string {
   if (!modelType) return DEFAULT_MODEL_TYPE;
-  if (SUPPORTED_MODEL_TYPES.has(modelType)) return modelType;
-  if (modelType === 'chat' || modelType === 'deepseek_chat') return DEFAULT_MODEL_TYPE;
-  if (modelType === 'reasoner' || modelType === 'deepseek_reasoner') return 'expert';
+  if (modelType === 'DEFAULT') return modelType;
   return DEFAULT_MODEL_TYPE;
 }
 

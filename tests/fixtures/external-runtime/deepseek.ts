@@ -90,7 +90,11 @@ export const DEEPSEEK_REQUEST_BODY_FIXTURE = {
 export const DEEPSEEK_ACTIVE_COMPLETION_BODY_FIXTURE = {
   chat_session_id: 'session-contract',
   parent_message_id: 19,
-  model_type: 'expert',
+  // The live page merged 快速/专家/识图 into one `default` model and moved the
+  // mode intent onto `thinking_enabled` / `search_enabled`, so every released
+  // model alias (including `deepseek_reasoner`, the input of this fixture)
+  // collapses to `default` before it reaches the wire.
+  model_type: 'default',
   prompt: 'Preserve the active request body.',
   ref_file_ids: ['file-contract'],
   thinking_enabled: true,

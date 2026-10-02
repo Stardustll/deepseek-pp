@@ -131,7 +131,7 @@ describe('sidepanel navigation', () => {
     await flushPromises();
 
     expect(navButtonLabels('设置子导航')).toContain('通用');
-    expect(container.textContent).toContain('网页模型模式');
+    expect(container.textContent).toContain('网页对话模式');
   });
 
   it('renders usage statistics from the Settings sub-navigation', async () => {

@@ -22,7 +22,15 @@ import {
   normalizeVoiceSettings,
   type VoiceSettings,
 } from '../../../core/voice/settings';
-import { DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES } from '../../../core/deepseek/upload-limits';
+import {
+  FALLBACK_DEEPSEEK_UPLOAD_LIMITS,
+  buildUploadAcceptAttribute,
+  effectiveUploadMaxBytes,
+  isUploadExtensionAccepted,
+  resolveUploadFilename,
+  type ResolvedDeepSeekUploadLimits,
+} from '../../../core/deepseek/upload-limits';
+import { readDeepSeekUploadLimits } from '../../../core/deepseek/upload-limits-storage';
 import { parseAtTrigger } from '../../../core/trusted-directory/at-panel';
 import { normalizeImageMimeType } from '../../../core/trusted-directory/scan';
 import type { ChatMessage as ChatMessageType, ModelType } from '../../../core/types';
@@ -35,7 +43,6 @@ import {
   chatController,
   getChatProviderCapabilities,
   normalizeChatAuthStatus,
-  normalizeChatWebModelType,
   type ChatAuthStatus,
   type ChatProvider,
 } from '../controllers/chat-controller';
@@ -62,7 +69,8 @@ interface VisionImageAttachment {
   name: string;
   mimeType: string;
   sizeBytes: number;
-  previewUrl: string;
+  /** Object URL for image previews; null for non-image files. */
+  previewUrl: string | null;
   status: VisionImageUploadStatus;
   error: string | null;
   /** Trusted-directory root-relative path when added via the @ panel. */
@@ -70,6 +78,17 @@ interface VisionImageAttachment {
 }
 
 const MAX_VISION_IMAGE_ATTACHMENTS = 4;
+
+/**
+ * Conservative limits in effect until the page's own config resolves. Using the
+ * released image-only values keeps the picker usable immediately and makes a
+ * slow or failed config read fall back rather than block uploads outright.
+ */
+const FALLBACK_RESOLVED_UPLOAD_LIMITS: ResolvedDeepSeekUploadLimits = {
+  limits: FALLBACK_DEEPSEEK_UPLOAD_LIMITS,
+  source: 'fallback',
+  fallbackReason: 'page limits not read yet',
+};
 
 const MODEL_OPTIONS: Array<{ value: OfficialDeepSeekModel; labelKey: 'sidepanel.chatPage.modelFlash' | 'sidepanel.chatPage.modelPro' }> = [
   { value: 'deepseek-v4-flash', labelKey: 'sidepanel.chatPage.modelFlash' },
@@ -81,15 +100,6 @@ const EFFORT_OPTIONS: Array<{ value: OfficialDeepSeekReasoningEffort; labelKey: 
   { value: 'max', labelKey: 'sidepanel.chatPage.effortMax' },
 ];
 
-const WEB_MODEL_OPTIONS: Array<{
-  value: ModelType;
-  labelKey: 'sidepanel.settings.modelDefault' | 'sidepanel.settings.modelExpert' | 'sidepanel.settings.modelVision';
-}> = [
-  { value: null, labelKey: 'sidepanel.settings.modelDefault' },
-  { value: 'expert', labelKey: 'sidepanel.settings.modelExpert' },
-  { value: 'vision', labelKey: 'sidepanel.settings.modelVision' },
-];
-
 export default function ChatPage() {
   const { t } = useI18n();
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
@@ -97,7 +107,6 @@ export default function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [authStatus, setAuthStatus] = useState<ChatAuthStatus | null>(null);
   const [chatConfig, setChatConfig] = useState<OfficialApiChatConfig>(DEFAULT_OFFICIAL_API_CHAT_CONFIG);
-  const [webModelType, setWebModelType] = useState<ModelType>(null);
   const [error, setError] = useState<string | null>(null);
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
   const [isListening, setIsListening] = useState(false);
@@ -105,12 +114,14 @@ export default function ChatPage() {
   const [trustedSession] = useState<TrustedDirectorySession | null>(() => getTrustedDirectorySession());
   const [atTrigger, setAtTrigger] = useState<{ active: boolean; query: string }>({ active: false, query: '' });
   const [msgSeq, setMsgSeq] = useState(0);
+  const [uploadLimits, setUploadLimits] = useState<ResolvedDeepSeekUploadLimits>(FALLBACK_RESOLVED_UPLOAD_LIMITS);
   const { confirm, node: confirmNode } = useConfirm();
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<ChatMessageType[]>([]);
   const imageAttachmentsRef = useRef<VisionImageAttachment[]>([]);
+  const uploadLimitsRef = useRef<ResolvedDeepSeekUploadLimits>(FALLBACK_RESOLVED_UPLOAD_LIMITS);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceSettingsRef = useRef<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
   const requestFence = useRef(createRequestGenerationFence());
@@ -120,7 +131,7 @@ export default function ChatPage() {
     apiControlsEnabled,
     webControlsEnabled,
     visionAttachmentsEnabled,
-  } = getChatProviderCapabilities(authStatus, webModelType);
+  } = getChatProviderCapabilities(authStatus);
   const hasUploadingImageAttachment = imageAttachments.some((item) => item.status === 'uploading');
   const hasFailedImageAttachment = imageAttachments.some((item) => item.status === 'error');
   const readyImageFileIds = visionAttachmentsEnabled
@@ -135,6 +146,7 @@ export default function ChatPage() {
     }
     return map;
   }, [imageAttachments]);
+  const uploadAcceptAttribute = buildUploadAcceptAttribute(uploadLimits.limits);
   const canSendMessage = !isStreaming && !hasUploadingImageAttachment && !hasFailedImageAttachment && !!inputText.trim();
 
   const scrollMessagesToBottom = useCallback(() => {
@@ -190,6 +202,25 @@ export default function ChatPage() {
     imageAttachmentsRef.current = imageAttachments;
   }, [imageAttachments]);
 
+  useEffect(() => {
+    uploadLimitsRef.current = uploadLimits;
+  }, [uploadLimits]);
+
+  useEffect(() => {
+    // The page's own limits arrive through the extension cache, refreshed on the
+    // same tab round trip as client headers. Until they resolve, the picker uses
+    // the conservative fallback accept list and uploads are blocked.
+    let cancelled = false;
+    void readDeepSeekUploadLimits().then((resolved) => {
+      if (cancelled) return;
+      setUploadLimits(resolved);
+      if (resolved.source === 'fallback' && resolved.fallbackReason) {
+        console.warn('[DeepSeek++] using fallback upload limits:', resolved.fallbackReason);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => () => {
     imageAttachmentsRef.current.forEach(revokeVisionAttachmentPreview);
   }, []);
@@ -205,7 +236,6 @@ export default function ChatPage() {
         if (!requestFence.current.isCurrent(generation)) return;
         setAuthStatus(snapshot.authStatus);
         setChatConfig(snapshot.chatConfig);
-        setWebModelType(snapshot.webModelType);
         setVoiceSettings(snapshot.voiceSettings);
         if (snapshot.loadErrors.length > 0) {
           setError(snapshot.loadErrors.map(getRuntimeErrorMessage).join('; '));
@@ -234,15 +264,6 @@ export default function ChatPage() {
         return;
       }
 
-      if (msg.type === 'STATE_UPDATED') {
-        const nextModelType = (msg as { modelType?: unknown }).modelType;
-        if (nextModelType !== undefined) {
-          const normalizedModelType = normalizeChatWebModelType(nextModelType);
-          setWebModelType(normalizedModelType);
-          if (normalizedModelType !== 'vision') clearImageAttachments();
-        }
-        return;
-      }
 
       if (msg.type === 'VOICE_SETTINGS_UPDATED') {
         setVoiceSettings(normalizeVoiceSettings(msg.voiceSettings));
@@ -371,19 +392,6 @@ export default function ChatPage() {
     void saveChatConfig({ reasoningEffort });
   };
 
-  const handleWebModelChange = async (nextModelType: ModelType) => {
-    if (!webControlsEnabled || isStreaming) return;
-    const previous = webModelType;
-    setWebModelType(nextModelType);
-    try {
-      await chatController.setWebModelType(nextModelType);
-      if (nextModelType !== 'vision') clearImageAttachments();
-    } catch (err) {
-      setWebModelType(previous);
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
   const chooseImageFile = () => {
     if (!visionAttachmentsEnabled || isStreaming) return;
     fileInputRef.current?.click();
@@ -397,7 +405,7 @@ export default function ChatPage() {
 
   const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     if (!visionAttachmentsEnabled || isStreaming) return;
-    const files = collectClipboardImageFiles(event.clipboardData);
+    const files = collectClipboardFiles(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();
     void uploadImageFiles(files);
@@ -405,15 +413,19 @@ export default function ChatPage() {
 
   const uploadImageFiles = async (files: File[]) => {
     if (!visionAttachmentsEnabled || files.length === 0) return;
-    const availableSlots = MAX_VISION_IMAGE_ATTACHMENTS - imageAttachmentsRef.current.length;
+    const maxAttachments = Math.min(
+      uploadLimitsRef.current.limits.maxFileCount,
+      MAX_VISION_IMAGE_ATTACHMENTS,
+    );
+    const availableSlots = maxAttachments - imageAttachmentsRef.current.length;
     if (availableSlots <= 0) {
-      setError(t('sidepanel.chatPage.imageUploadMax', { count: MAX_VISION_IMAGE_ATTACHMENTS }));
+      setError(t('sidepanel.chatPage.imageUploadMax', { count: maxAttachments }));
       return;
     }
 
     const selectedFiles = files.slice(0, availableSlots);
     if (files.length > availableSlots) {
-      setError(t('sidepanel.chatPage.imageUploadMax', { count: MAX_VISION_IMAGE_ATTACHMENTS }));
+      setError(t('sidepanel.chatPage.imageUploadMax', { count: maxAttachments }));
     } else {
       setError(null);
     }
@@ -424,15 +436,19 @@ export default function ChatPage() {
   };
 
   const uploadImageFile = async (file: File, sourcePath: string | null = null) => {
+    const activeLimits = uploadLimitsRef.current;
+    // The OS picker reports an empty type for some images, so recover the MIME
+    // from the extension before validating or sending it.
     const mimeType = normalizeImageMimeType(file.name, file.type);
-    const validationError = validateImageFile(file, mimeType, t);
+    const validationError = validateAttachmentFile(file, activeLimits, t);
     if (validationError) {
       setError(validationError);
       return;
     }
 
     const attachmentId = createVisionAttachmentId();
-    const previewUrl = URL.createObjectURL(file);
+    // Only images get a thumbnail; other file types render as a name row.
+    const previewUrl = mimeType.startsWith('image/') ? URL.createObjectURL(file) : null;
     const baseAttachment: VisionImageAttachment = {
       id: attachmentId,
       fileId: null,
@@ -451,7 +467,7 @@ export default function ChatPage() {
       const dataUrl = await readFileAsDataUrl(file);
       const uploaded = await chatController.uploadImage({
         dataUrl,
-        name: file.name,
+        name: resolveUploadFilename(file.name, mimeType),
         mimeType,
         sizeBytes: file.size,
       });
@@ -488,8 +504,10 @@ export default function ChatPage() {
       if (attachment) removeImageAttachment(attachment.id);
       return;
     }
-    if (imageAttachmentsRef.current.length >= MAX_VISION_IMAGE_ATTACHMENTS) {
-      setError(t('sidepanel.chatPage.imageUploadMax', { count: MAX_VISION_IMAGE_ATTACHMENTS }));
+    if (imageAttachmentsRef.current.length >= uploadLimitsRef.current.limits.maxFileCount) {
+      setError(t('sidepanel.chatPage.imageUploadMax', {
+        count: uploadLimitsRef.current.limits.maxFileCount,
+      }));
       return;
     }
     void uploadImageFile(file.file, file.relativePath);
@@ -685,17 +703,9 @@ export default function ChatPage() {
         {webControlsEnabled && (
           <div className="ds-chat-config-panel">
             <div className="ds-chat-control-group" aria-label={t('sidepanel.chatPage.modelLabel')}>
-              {WEB_MODEL_OPTIONS.map((option) => (
-                <button
-                  key={option.value ?? 'default'}
-                  type="button"
-                  disabled={isStreaming}
-                  onClick={() => void handleWebModelChange(option.value)}
-                  className={`ds-chat-segment${webModelType === option.value ? ' ds-chat-segment-active' : ''}`}
-                >
-                  {t(option.labelKey)}
-                </button>
-              ))}
+              <span className="ds-chat-current-config">
+                {t('sidepanel.settings.modelModeDescription')}
+              </span>
             </div>
           </div>
         )}
@@ -746,7 +756,7 @@ export default function ChatPage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept={uploadAcceptAttribute}
             multiple
             className="ds-chat-file-input"
             onChange={handleImageFileChange}
@@ -776,7 +786,9 @@ export default function ChatPage() {
                   key={attachment.id}
                   className={`ds-chat-attachment ds-chat-attachment-${attachment.status}`}
                 >
-                  <img src={attachment.previewUrl} alt="" className="ds-chat-attachment-thumb" />
+                  {attachment.previewUrl
+                    ? <img src={attachment.previewUrl} alt="" className="ds-chat-attachment-thumb" />
+                    : <span className="ds-chat-attachment-thumb ds-chat-attachment-thumb-file" aria-hidden="true" />}
                   <div className="ds-chat-attachment-body">
                     <div className="ds-chat-attachment-name" title={attachment.name}>
                       {attachment.name}
@@ -805,7 +817,7 @@ export default function ChatPage() {
               {apiControlsEnabled
                 ? getConfigLabel(chatConfig, t)
                 : webControlsEnabled
-                  ? getWebModelLabel(webModelType, t)
+                  ? getWebModelLabel(t)
                   : t('sidepanel.chatPage.webProvider')}
             </span>
             <div className="ds-chat-composer-buttons">
@@ -813,7 +825,7 @@ export default function ChatPage() {
                 <button
                   type="button"
                   onClick={chooseImageFile}
-                  disabled={isStreaming || imageAttachments.length >= MAX_VISION_IMAGE_ATTACHMENTS}
+                  disabled={isStreaming || imageAttachments.length >= uploadLimits.limits.maxFileCount}
                   className="ds-chat-attachment-button"
                   title={t('sidepanel.chatPage.uploadImage')}
                   aria-label={t('sidepanel.chatPage.uploadImage')}
@@ -872,11 +884,8 @@ function ProviderBadge({ provider }: { provider: ChatProvider }) {
 }
 
 function getWebModelLabel(
-  modelType: ModelType,
   t: ReturnType<typeof useI18n>['t'],
 ): string {
-  if (modelType === 'expert') return t('sidepanel.settings.modelExpert');
-  if (modelType === 'vision') return t('sidepanel.settings.modelVision');
   return t('sidepanel.settings.modelDefault');
 }
 
@@ -905,30 +914,32 @@ function getImageAttachmentStatusLabel(
   return t('sidepanel.chatPage.imageUploadFailed');
 }
 
-function validateImageFile(
+function validateAttachmentFile(
   file: File,
-  mimeType: string,
+  limits: ResolvedDeepSeekUploadLimits,
   t: ReturnType<typeof useI18n>['t'],
 ): string | null {
-  if (!mimeType.startsWith('image/')) {
-    return t('sidepanel.chatPage.imageOnly');
-  }
   if (file.size <= 0) {
     return t('sidepanel.chatPage.imageEmpty');
   }
-  if (file.size > DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES) {
+  const maxBytes = effectiveUploadMaxBytes(limits.limits);
+  if (file.size > maxBytes) {
     return t('sidepanel.chatPage.imageTooLarge', {
-      limit: formatImageUploadBytes(DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES),
+      limit: formatImageUploadBytes(maxBytes),
     });
+  }
+  if (!isUploadExtensionAccepted(resolveUploadFilename(file.name, file.type), limits.limits)) {
+    return t('sidepanel.chatPage.imageOnly');
   }
   return null;
 }
 
-function collectClipboardImageFiles(data: DataTransfer): File[] {
-  const files = Array.from(data.files).filter((file) => file.type.startsWith('image/'));
+/** Clipboard entries are files the user copied; the page decides what to take. */
+function collectClipboardFiles(data: DataTransfer): File[] {
+  const files = Array.from(data.files);
   if (files.length > 0) return files;
   return Array.from(data.items)
-    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .filter((item) => item.kind === 'file')
     .map((item) => item.getAsFile())
     .filter((file): file is File => !!file);
 }
@@ -949,7 +960,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 function revokeVisionAttachmentPreview(attachment: VisionImageAttachment) {
-  URL.revokeObjectURL(attachment.previewUrl);
+  if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
 }
 
 function createVisionAttachmentId(): string {

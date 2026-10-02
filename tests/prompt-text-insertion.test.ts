@@ -34,4 +34,37 @@ describe('prompt text insertion', () => {
     expect(inputListener).toHaveBeenCalledTimes(1);
     expect(changeListener).toHaveBeenCalledTimes(1);
   });
+
+  // The live page dropped the historical `#chat-input` id; the composer is now
+  // only identifiable by its placeholder, and a bare `textarea` query would
+  // latch onto the wrong field once any other textarea exists.
+  it('finds the composer by placeholder when the page no longer sets #chat-input', () => {
+    document.body.innerHTML = [
+      '<textarea placeholder="Search this page"></textarea>',
+      '<textarea placeholder="给 DeepSeek 发送消息 " rows="2"></textarea>',
+    ].join('');
+
+    expect(findPromptTextarea()?.placeholder).toBe('给 DeepSeek 发送消息 ');
+  });
+
+  it('finds the English composer placeholder too', () => {
+    document.body.innerHTML = '<textarea placeholder="Send a message to DeepSeek"></textarea>';
+
+    expect(findPromptTextarea()).toBeInstanceOf(HTMLTextAreaElement);
+  });
+
+  it('does not guess when multiple non-composer textareas exist without an id', () => {
+    document.body.innerHTML = [
+      '<textarea placeholder="First"></textarea>',
+      '<textarea placeholder="Second"></textarea>',
+    ].join('');
+
+    expect(findPromptTextarea()).toBeNull();
+  });
+
+  it('still accepts a single unidentified textarea as the last resort', () => {
+    document.body.innerHTML = '<textarea></textarea>';
+
+    expect(findPromptTextarea()).toBeInstanceOf(HTMLTextAreaElement);
+  });
 });

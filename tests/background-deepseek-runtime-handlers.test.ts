@@ -152,7 +152,9 @@ describe('R4.3 DeepSeek runtime ownership', () => {
     });
     expect(chatDependencies.uploadFile).toHaveBeenCalledOnce();
     const request = vi.mocked(chatDependencies.uploadFile).mock.calls[0]![0];
-    expect(request).toMatchObject({ filename: 'image' });
+    // The transport may omit a filename, so a name is derived from the declared
+    // MIME type before the accepted-extension check runs.
+    expect(request).toMatchObject({ filename: 'image.png' });
     expect(request.file).toBeInstanceOf(Blob);
     expect(request.file.size).toBe(3);
     expect(request.file.type).toBe('image/png');
@@ -773,6 +775,16 @@ function createChatDependencies(): ChatRuntimeServiceDependencies {
     getOfficialApiChatConfig: vi.fn(async () => officialConfig()),
     loadClientHeaders: vi.fn(async () => ({ Authorization: 'Bearer token' })),
     getModelType: vi.fn(async () => 'chat'),
+    loadUploadLimits: vi.fn(async () => ({
+      limits: {
+        maxFileCount: 50,
+        maxFileSizeBytes: 100 * 1024 * 1024,
+        supportedExtensions: ['png', 'jpg', 'pdf', 'docx'],
+      },
+      source: 'page-config' as const,
+      fallbackReason: null,
+    })),
+    refreshUploadLimits: vi.fn(async () => true),
     buildPrompt: vi.fn(async ({ prompt }) => ({ augmented: prompt, enabledDescriptors: [] })),
     executeToolCall: vi.fn(async () => ({ ok: true, summary: 'ok' })),
     createChatSession: vi.fn(async () => 'session-1'),

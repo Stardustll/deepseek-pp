@@ -229,6 +229,11 @@ import {
   rememberDeepSeekClientHeaders,
   saveClientHeadersToStorage,
 } from "../core/deepseek/adapter";
+import {
+  DEEPSEEK_REMOTE_MODEL_STORE_KEY,
+  DEEPSEEK_UPLOAD_LIMITS_STORAGE_KEY,
+  resolveDeepSeekUploadLimits,
+} from "../core/deepseek/upload-limits";
 import type {
   ConversationExportArtifact,
   ConversationExportContentScope,
@@ -1469,6 +1474,12 @@ function handleContentRuntimeMessage(
     if (petCapabilityScope?.active)
       applyPetConfig(message.config as PetConfig | null);
   } else if (message.type === "REFRESH_DEEPSEEK_AUTH") {
+    // The same page round trip that captures client headers also re-caches the
+    // page's own upload limits, so the background gets both without a second
+    // runtime command name.
+    persistDeepSeekUploadLimits().catch((error) => {
+      console.error("[DeepSeek++] upload limits cache failed", error);
+    });
     persistDeepSeekClientHeaders()
       .then((hasToken) => sendResponse({ ok: hasToken, hasToken }))
       .catch((error) =>
@@ -2190,6 +2201,35 @@ function invalidateExtensionContext() {
   void lifecycle
     ?.dispose("extension-invalidated")
     .catch(reportContentLifecycleError);
+}
+
+/**
+ * Caches the page's own upload limits for background upload validation.
+ *
+ * The limits live in a page-owned `localStorage` store that only this isolated
+ * content script can read; the background service worker validates uploads and
+ * cannot reach it. The raw string is cached as-is (never widened here) and the
+ * receiver re-validates it with the shared pure reader.
+ */
+async function persistDeepSeekUploadLimits(): Promise<boolean> {
+  try {
+    const raw = localStorage.getItem(DEEPSEEK_REMOTE_MODEL_STORE_KEY);
+    const resolved = resolveDeepSeekUploadLimits(raw);
+    if (resolved.source === "fallback") {
+      console.warn(
+        "[DeepSeek++] upload limits unavailable from the page:",
+        resolved.fallbackReason,
+      );
+      return false;
+    }
+    await chrome.storage.local.set({
+      [DEEPSEEK_UPLOAD_LIMITS_STORAGE_KEY]: raw,
+    });
+    return true;
+  } catch (error) {
+    console.error("[DeepSeek++] upload limits cache failed", error);
+    return false;
+  }
 }
 
 /** Isolated world writes captured DeepSeek request headers to chrome.storage. */
@@ -4378,9 +4418,11 @@ function detectExplicitTheme(): DeepSeekTheme | null {
   ];
 
   for (const host of hosts) {
-    // DeepSeek toggles its theme with a boolean `data-ds-dark-theme` marker;
-    // honor it directly so injected UI follows the host instead of the OS
-    // prefers-color-scheme (Issue #551).
+    // The page marks its theme with a `light`/`dark` class on `body` (plus a
+    // legacy boolean `data-ds-dark-theme`, honored first for older builds).
+    // Both are read below through the shared className/attribute parsing, so
+    // injected UI follows the host instead of the OS prefers-color-scheme
+    // (Issue #551).
     if (host.hasAttribute("data-ds-dark-theme")) return "dark";
     for (const name of attributeNames) {
       const theme = parseThemeText(host.getAttribute(name));

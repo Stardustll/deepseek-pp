@@ -22,7 +22,12 @@ import {
   type PowAnswer,
   type PowChallenge,
 } from './pow';
-import { DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES } from './upload-limits';
+import {
+  effectiveUploadMaxBytes,
+  isUploadExtensionAccepted,
+  resolveUploadFilename,
+} from './upload-limits';
+import { readDeepSeekUploadLimits } from './upload-limits-storage';
 import {
   DEEPSEEK_BYPASS_HOOK_HEADER,
   DEEPSEEK_BODY_BUDGETS,
@@ -288,15 +293,26 @@ export async function loadClientHeadersFromStorage(): Promise<Record<string, str
 }
 
 export async function uploadDeepSeekFile(input: DeepSeekFileUploadInput, signal?: AbortSignal): Promise<DeepSeekUploadedFile> {
-  if (!input.file.type.startsWith('image/')) {
-    throw new DeepSeekPayloadError(`${input.filename} is not an image file.`);
+  // The page merged its fast/expert/image modes into one model, so the accepted
+  // surface is "any extension the page's own config lists", not `image/*`. The limits are
+  // resolved from the page-owned config cache with a fail-closed fallback; a
+  // filename with no extension is rejected rather than guessed from MIME.
+  const { limits } = await readDeepSeekUploadLimits();
+  const filename = resolveUploadFilename(input.filename, input.file.type);
+  const maxBytes = effectiveUploadMaxBytes(limits);
+  if (input.file.size > maxBytes) {
+    throw new DeepSeekPayloadError(
+      `${filename} exceeds the ${formatBytes(maxBytes)} upload limit.`,
+    );
   }
-  if (input.file.size > DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES) {
-    throw new DeepSeekPayloadError(`${input.filename} exceeds the ${formatBytes(DEEPSEEK_IMAGE_UPLOAD_MAX_BYTES)} image upload limit.`);
+  if (!isUploadExtensionAccepted(filename, limits)) {
+    throw new DeepSeekPayloadError(
+      `${filename} has a file type DeepSeek does not accept.`,
+    );
   }
 
   const form = new FormData();
-  form.append('file', input.file, input.filename);
+  form.append('file', input.file, filename);
 
   const response = await requestDeepSeek(
     encodeDeepSeekRouteRequest('uploadFile', {

@@ -578,25 +578,27 @@ describe('sidepanel interactions', () => {
     expect(onImported).not.toHaveBeenCalled();
   });
 
-  it('persists web model mode from sidepanel chat controls', async () => {
+  it('describes the merged web model instead of offering the removed mode picker', async () => {
+    // The page merged 快速/专家/识图 into one model and moved thinking/search
+    // onto composer toggles, so the sidepanel must not present a mode picker
+    // nor issue SET_MODEL_TYPE from the chat page any more.
     const sendMessage = vi.fn(async (message: { type: string; payload?: unknown }) => {
       if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
       if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
       if (message.type === 'GET_MODEL_TYPE') return null;
       if (message.type === 'GET_VOICE_SETTINGS') return {};
-      if (message.type === 'SET_MODEL_TYPE') return { ok: true };
       return null;
     });
     stubChrome(sendMessage);
 
     await renderElement(React.createElement(ChatPage));
     await flushPromises();
-    expect(buttonByText('默认').className).toContain('ds-chat-segment-active');
 
-    await clickButton('识图');
-
-    expect(sendMessage).toHaveBeenCalledWith({ type: 'SET_MODEL_TYPE', payload: 'vision' });
-    expect(buttonByText('识图').className).toContain('ds-chat-segment-active');
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_MODEL_TYPE' }),
+    );
+    expect(container.textContent).toContain('官网已把快速、专家、识图合并为同一个模型');
+    expect(container.querySelectorAll('.ds-chat-segment')).toHaveLength(0);
   });
 
   it('scrolls to the updated message height after the lazy rich renderer commits', async () => {

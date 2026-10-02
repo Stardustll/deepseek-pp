@@ -2,6 +2,12 @@ import type { OfficialApiChatConfig } from '../../core/chat/official-api-config-
 import type { ChatLoopProvider, InterruptedChatLoop } from '../../core/chat/active-loop';
 import type { ModelTurn, SubmitPromptInput } from '../../core/deepseek/automation-client-port';
 import type { DeepSeekUploadedFile } from '../../core/deepseek/contracts';
+import {
+  effectiveUploadMaxBytes,
+  isUploadExtensionAccepted,
+  resolveUploadFilename,
+  type ResolvedDeepSeekUploadLimits,
+} from '../../core/deepseek/upload-limits';
 import type {
   OfficialDeepSeekCallbacks,
   OfficialDeepSeekMessage,
@@ -48,6 +54,8 @@ export interface ChatRuntimeServiceDependencies {
   getOfficialApiChatConfig(): Promise<OfficialApiChatConfig>;
   loadClientHeaders(preferredTabId?: number): Promise<Record<string, string> | null>;
   getModelType(): Promise<string | null>;
+  loadUploadLimits(): Promise<ResolvedDeepSeekUploadLimits>;
+  refreshUploadLimits(preferredTabId?: number): Promise<boolean>;
   buildPrompt(request: ChatPromptBuildRequest): Promise<ChatPromptBuildResult>;
   executeToolCall(call: ToolCall, options: RuntimeToolCallOptions): Promise<ToolResult>;
   createChatSession(headers: Record<string, string>, signal: AbortSignal): Promise<string>;
@@ -527,6 +535,35 @@ export function createChatRuntimeService(
     if (!enabled) return { ok: false, error: 'chat_disabled' };
     const materialized = materializeDeepSeekImageUpload(request);
     assertSignalActive(controller.signal);
+    // The page merged its fast/expert/image modes into one model, so uploaded
+    // files are no longer gated behind a "vision" mode — `ref_file_ids` carries them on any
+    // web turn. The limits come from the page's own published config with a
+    // fail-closed fallback, never from a hardcoded snapshot.
+    const { limits, source, fallbackReason } = await dependencies.loadUploadLimits();
+    assertSignalActive(controller.signal);
+    if (source === 'fallback') {
+      // Best-effort: ask the page for its current limits and cache them for the
+      // next attempt. Bounded and logged; the current attempt still runs under
+      // the conservative fallback limits.
+      void dependencies.refreshUploadLimits(excludeTabId).catch((error) => {
+        console.warn('[DeepSeek++] upload limits refresh failed', error);
+      });
+      if (fallbackReason) {
+        console.warn('[DeepSeek++] upload limits fell back:', fallbackReason);
+      }
+    }
+    const effectiveMaxBytes = effectiveUploadMaxBytes(limits);
+    if (materialized.sizeBytes > effectiveMaxBytes) {
+      return { ok: false, error: 'file_too_large' };
+    }
+    // The transport carries the file as a data URL and may not include a
+    // filename, so fall back to a name derived from the declared MIME type
+    // before the extension check — otherwise a nameless but accepted type
+    // would be rejected for looking extension-less.
+    const uploadFilename = resolveUploadFilename(materialized.name, materialized.mimeType);
+    if (!isUploadExtensionAccepted(uploadFilename, limits)) {
+      return { ok: false, error: 'file_type_not_supported' };
+    }
     const headers = await dependencies.loadClientHeaders(excludeTabId);
     assertSignalActive(controller.signal);
     if (!headers) return { ok: false, error: dependencies.missingAuthMessage() };
@@ -534,8 +571,8 @@ export function createChatRuntimeService(
     assertSignalActive(controller.signal);
     const file = await dependencies.uploadFile({
       file: materialized.file,
-      filename: materialized.name,
-      modelType: 'vision',
+      filename: uploadFilename,
+      modelType: null,
       clientHeaders: headers,
       powHeaders,
     }, controller.signal);

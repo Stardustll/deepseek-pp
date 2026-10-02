@@ -1248,6 +1248,24 @@ input[type='range'] {
   background: var(--ds-card);
 }
 
+/* Non-image attachments render a placeholder chip instead of a thumbnail. */
+.ds-chat-attachment-thumb-file {
+  display: block;
+  flex: 0 0 auto;
+  border: 1px dashed var(--ds-border);
+  background: var(--ds-bg);
+  position: relative;
+}
+
+.ds-chat-attachment-thumb-file::after {
+  content: '';
+  position: absolute;
+  inset: 11px 8px;
+  border-radius: 2px;
+  background: var(--ds-text-secondary);
+  opacity: 0.45;
+}
+
 .ds-chat-attachment-body {
   min-width: 0;
 }

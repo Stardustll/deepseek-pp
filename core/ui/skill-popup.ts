@@ -1,3 +1,5 @@
+import { findPromptTextarea } from './prompt-text-insertion';
+
 export interface SkillPopupItem {
   name: string;
   description: string;
@@ -66,8 +68,9 @@ function watchTextarea() {
 
 function tryAttach() {
   if (textarea) return;
-  const el = document.querySelector<HTMLTextAreaElement>('textarea#chat-input')
-    || document.querySelector<HTMLTextAreaElement>('textarea');
+  // Share the composer resolver with prompt insertion so the popup and the
+  // insert path can never disagree about which textarea is the page composer.
+  const el = findPromptTextarea();
   if (!el) return;
   textarea = el;
   el.addEventListener('input', onInput);

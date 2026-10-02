@@ -60,6 +60,11 @@ const lineAllowlist = [
     reason: 'default DeepSeek conversation title suffix detection',
   },
   {
+    path: 'core/ui/prompt-text-insertion.ts',
+    includes: '给 DeepSeek 发送消息',
+    reason: 'DeepSeek composer placeholder used to identify the page prompt textarea across locales',
+  },
+  {
     path: 'core/interceptor/history-cleanup.ts',
     includes: 'DeepSeek++ 托管 Agent Runner',
     reason: 'legacy managed-agent prompt marker detection',

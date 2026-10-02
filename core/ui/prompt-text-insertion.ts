@@ -2,10 +2,40 @@ export type PromptTextInsertionResult =
   | { ok: true; insertedLength: number }
   | { ok: false; error: 'empty_prompt_text' | 'prompt_input_not_found' };
 
+/**
+ * Placeholders seen on the live composer. The page dropped the historical
+ * `#chat-input` id, so the placeholder is now the only page-owned signal that
+ * separates the real composer from any other textarea the page might mount.
+ */
+const DEEPSEEK_COMPOSER_PLACEHOLDERS = [
+  '给 DeepSeek 发送消息',
+  'Send a message to DeepSeek',
+  'Message DeepSeek',
+];
+
+/**
+ * Resolves the DeepSeek composer.
+ *
+ * `#chat-input` is the historical id and is still preferred when present, but
+ * the live composer no longer carries it, so the remaining candidates are the
+ * page's own placeholder text first and any single textarea last. Matching on
+ * page-owned signals (rather than a bare `textarea` query) keeps the selection
+ * from latching onto an extension-owned or plugin textarea when more than one
+ * exists on the page.
+ */
 export function findPromptTextarea(root: ParentNode = document): HTMLTextAreaElement | null {
-  const textarea = root.querySelector<HTMLTextAreaElement>('textarea#chat-input')
-    ?? root.querySelector<HTMLTextAreaElement>('textarea');
-  return textarea?.tagName === 'TEXTAREA' ? textarea : null;
+  const byId = root.querySelector<HTMLTextAreaElement>('textarea#chat-input');
+  if (byId?.tagName === 'TEXTAREA') return byId;
+
+  for (const textarea of root.querySelectorAll<HTMLTextAreaElement>('textarea')) {
+    const placeholder = textarea.getAttribute('placeholder') ?? '';
+    if (DEEPSEEK_COMPOSER_PLACEHOLDERS.some((candidate) => placeholder.includes(candidate))) {
+      return textarea;
+    }
+  }
+
+  const textareas = root.querySelectorAll<HTMLTextAreaElement>('textarea');
+  return textareas.length === 1 && textareas[0].tagName === 'TEXTAREA' ? textareas[0] : null;
 }
 
 export function insertTextIntoPromptTextarea(

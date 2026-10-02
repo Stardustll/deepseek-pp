@@ -95,9 +95,17 @@ if (requestedBrowsers.some((browser) => !browser)) {
 // baseline is set to the CI measurement per convention to stay green on both
 // runtimes. Same-build measurements under node@22.23.1: firstChatScreen gzip
 // 125600 (cap raised below from 125500), all other chunks inside budget.
+// Refreshed for the DeepSeek webside merge (page commit 44809ea4, 2026-10-02):
+// the side panel now resolves its upload limits from the page's own published
+// file config (core/deepseek/upload-limits.ts + upload-limits-storage.ts, with a
+// fail-closed fallback), the chat page renders non-image attachments, and the
+// merged-model / attachment copy replaced the three-mode selector strings.
+// Local Node-22.22.2 measurement: 380194 raw (+1902) / 116222 gzip (+664 over
+// the previous CI baseline). Per convention the raw and gzip baselines below are
+// set to the measured values so the guardrail stays meaningful on both runtimes.
 // The initial shell is sidepanel.html's entry script plus every static modulepreload.
 const BASELINE = Object.freeze({
-  initialShell: { raw: 378_292, gzip: 115_558 },
+  initialShell: { raw: 380_194, gzip: 116_222 },
   routeChunks: {
     ChatPage: { raw: 134_938, gzip: 40_056 },
     CapabilitiesPage: { raw: 160_137, gzip: 35_259 },
@@ -161,10 +169,13 @@ const BUDGET = Object.freeze({
     raw: BASELINE.initialShell.raw,
     gzip: BASELINE.initialShell.gzip + GZIP_ENCODER_VARIANCE_BYTES,
   },
-  firstChatScreen: { raw: 408_548, gzip: 125_600 },
+  // Raised with the initial shell by the same DeepSeek webside-merge change:
+  // measured 413261 raw / 127233 gzip on local Node-22.22.2.
+  firstChatScreen: { raw: 413_261, gzip: 127_233 },
   richRendererIncrement: { raw: 120_000, gzip: 36_000 },
   routeChunks: {
-    ChatPage: { raw: 25_000, gzip: 8_000 },
+    // Raised from 25000/8000 by the same change: measured 27066 raw / 8266 gzip.
+    ChatPage: { raw: 27_066, gzip: 8_266 },
     LibraryPage: { raw: 2_500, gzip: 1_200 },
     MemoryPage: { raw: 6_000, gzip: 2_500 },
     SavedPage: { raw: 10_000, gzip: 4_000 },

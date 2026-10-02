@@ -234,7 +234,7 @@ describe('DeepSeek web adapter streaming', () => {
     });
     const headers = (options as RequestInit).headers as Record<string, string>;
     expect(headers[BYPASS_HOOK_HEADER]).toBe('1');
-    expect(headers['x-model-type']).toBe('vision');
+    expect(headers['x-model-type']).toBe('default');
     expect(headers['x-file-size']).toBe('3');
     expect(headers['content-type']).toBeUndefined();
     expect((options as RequestInit).body).toBeInstanceOf(FormData);

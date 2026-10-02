@@ -181,14 +181,18 @@ export function normalizeChatWebModelType(value: unknown): ModelType {
 
 export function getChatProviderCapabilities(
   authStatus: ChatAuthStatus | null,
-  modelType: ModelType,
+  modelType: ModelType = null,
 ): ChatProviderCapabilities {
   const apiControlsEnabled = authStatus?.provider === 'official-api';
   const webControlsEnabled = authStatus?.provider === 'deepseek-web';
   return {
     apiControlsEnabled,
     webControlsEnabled,
-    visionAttachmentsEnabled: webControlsEnabled && modelType === 'vision',
+    // The page merged its fast/expert/image modes into one model that always
+    // understands images, and references ride on `ref_file_ids` for every request, so
+    // attachment support now follows the web provider itself instead of a
+    // (no longer selectable) `vision` mode.
+    visionAttachmentsEnabled: webControlsEnabled,
   };
 }
 
