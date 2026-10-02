@@ -943,6 +943,14 @@ export default function ChatPage() {
       setAtTrigger({ active: false, query: '' });
       return;
     }
+    // Escape also dismisses an open mode popover. The composer keeps focus while
+    // the popover is open (the trigger is a sibling button), so this is where the
+    // key actually lands in that flow.
+    if (e.key === 'Escape' && modeMenuOpen) {
+      e.preventDefault();
+      setModeMenuOpen(false);
+      return;
+    }
     if (shouldSubmitChatComposer({
       key: e.key,
       shiftKey: e.shiftKey,

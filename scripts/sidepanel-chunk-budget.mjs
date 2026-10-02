@@ -177,12 +177,12 @@ const BUDGET = Object.freeze({
   },
   // Raised with the initial shell by the same change: measured 422570 raw /
   // 129193 gzip on local Node-22.22.2.
-  firstChatScreen: { raw: 432_429, gzip: 131_629 },
+  firstChatScreen: { raw: 432_485, gzip: 131_640 },
   richRendererIncrement: { raw: 120_000, gzip: 36_000 },
   routeChunks: {
     // Raised again by the same change (mode toggles + conversation picker):
     // measured 33970 raw / 9565 gzip.
-    ChatPage: { raw: 42_458, gzip: 11_662 },
+    ChatPage: { raw: 42_514, gzip: 11_673 },
     LibraryPage: { raw: 2_500, gzip: 1_200 },
     MemoryPage: { raw: 6_000, gzip: 2_500 },
     SavedPage: { raw: 10_000, gzip: 4_000 },

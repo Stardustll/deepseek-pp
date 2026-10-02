@@ -1107,6 +1107,15 @@ describe('sidepanel interactions', () => {
       document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     });
     expect(container.querySelectorAll('.ds-toggle-button')).toHaveLength(0);
+
+    // Escape from the composer itself (the popover does not steal focus).
+    await openMenu();
+    expect(container.querySelectorAll('.ds-toggle-button')).toHaveLength(2);
+    const composer = container.querySelector('textarea.ds-chat-input') as HTMLTextAreaElement;
+    await act(async () => {
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(container.querySelectorAll('.ds-toggle-button')).toHaveLength(0);
   });
 
   it('waits for new-session acknowledgement before clearing pending chat UI', async () => {
