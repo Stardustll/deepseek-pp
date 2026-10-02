@@ -1,6 +1,8 @@
 import type { OfficialApiChatConfig } from '../../core/chat/official-api-config-contract';
 import type { ChatLoopProvider, InterruptedChatLoop } from '../../core/chat/active-loop';
 import type { ModelTurn, SubmitPromptInput } from '../../core/deepseek/automation-client-port';
+import type { WebChatOptions } from '../../core/chat/web-chat-options';
+import type { BoundConversation } from '../../core/chat/conversation-binding';
 import type { DeepSeekUploadedFile } from '../../core/deepseek/contracts';
 import {
   effectiveUploadMaxBytes,
@@ -41,6 +43,14 @@ export interface ChatPromptBuildRequest {
   prompt: string;
   isFirstMessage: boolean;
   messageCount: number;
+  /**
+   * Mode intent for this turn. Selects the `prompt.systemThinking` vs
+   * `prompt.systemChat` template and, when search is on, projects the
+   * extension-owned networking tools out of the model-facing catalog so the
+   * page's own search is not fought by a second searcher.
+   */
+  thinkingEnabled: boolean;
+  searchEnabled: boolean;
 }
 
 export interface ChatPromptBuildResult {
@@ -54,6 +64,13 @@ export interface ChatRuntimeServiceDependencies {
   getOfficialApiChatConfig(): Promise<OfficialApiChatConfig>;
   loadClientHeaders(preferredTabId?: number): Promise<Record<string, string> | null>;
   getModelType(): Promise<string | null>;
+  getWebChatOptions(): Promise<WebChatOptions>;
+  getBoundConversation(): Promise<BoundConversation>;
+  resolveConversationLeafMessageId(
+    chatSessionId: string,
+    clientHeaders: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<number | null>;
   loadUploadLimits(): Promise<ResolvedDeepSeekUploadLimits>;
   refreshUploadLimits(preferredTabId?: number): Promise<boolean>;
   buildPrompt(request: ChatPromptBuildRequest): Promise<ChatPromptBuildResult>;
@@ -105,6 +122,12 @@ export interface ChatSubmitRequest {
   text: string;
   config?: OfficialApiChatConfig;
   refFileIds: string[];
+  /**
+   * Per-turn override of the persisted web-chat mode options. Absent means
+   * "read the persisted setting", which keeps older payloads working.
+   */
+  thinkingEnabled?: boolean;
+  searchEnabled?: boolean;
 }
 
 export interface ChatRuntimeService {
@@ -178,13 +201,33 @@ export function createChatRuntimeService(
     dependencies.broadcastChunk(chunk, excludeTabId);
   };
 
-  const buildPrompt = (prompt: string): Promise<ChatPromptBuildResult> => (
+  const buildPrompt = (
+    prompt: string,
+    mode: { thinkingEnabled: boolean; searchEnabled: boolean },
+  ): Promise<ChatPromptBuildResult> => (
     dependencies.buildPrompt({
       prompt,
       isFirstMessage: chatSessionId === null && officialApiChatMessages.length === 0,
       messageCount: officialApiChatMessages.length + 1,
+      thinkingEnabled: mode.thinkingEnabled,
+      searchEnabled: mode.searchEnabled,
     })
   );
+
+  /**
+   * Resolves this turn's mode intent: an explicit per-turn override wins,
+   * otherwise the persisted sidepanel setting. Errors reading storage fall back
+   * to the disabled defaults rather than failing the turn.
+   */
+  const resolveWebChatMode = async (
+    request: ChatSubmitRequest,
+  ): Promise<{ thinkingEnabled: boolean; searchEnabled: boolean }> => {
+    const stored = await dependencies.getWebChatOptions();
+    return {
+      thinkingEnabled: request.thinkingEnabled ?? stored.thinkingEnabled,
+      searchEnabled: request.searchEnabled ?? stored.searchEnabled,
+    };
+  };
 
   const executeChatTool = async (
     turn: ActiveChatTurn,
@@ -306,6 +349,23 @@ export function createChatRuntimeService(
     }
 
     if (!chatSessionId) {
+      // A bound conversation means the user asked the sidepanel to post into an
+      // existing DeepSeek conversation instead of owning a new one. The chain
+      // leaf comes from history because this process did not create the session.
+      const bound = await dependencies.getBoundConversation();
+      assertTurnActive(turn);
+      if (bound.conversationId) {
+        const leafMessageId = await dependencies.resolveConversationLeafMessageId(
+          bound.conversationId,
+          headers,
+          turn.controller.signal,
+        );
+        assertTurnActive(turn);
+        chatSessionId = bound.conversationId;
+        chatParentMessageId = leafMessageId;
+      }
+    }
+    if (!chatSessionId) {
       const nextSessionId = await dependencies.createChatSession(
         headers,
         turn.controller.signal,
@@ -315,7 +375,9 @@ export function createChatRuntimeService(
       chatParentMessageId = null;
     }
 
-    const promptContext = await buildPrompt(request.text);
+    const webChatMode = await resolveWebChatMode(request);
+    assertTurnActive(turn);
+    const promptContext = await buildPrompt(request.text, webChatMode);
     assertTurnActive(turn);
     const storedModelType = await dependencies.getModelType();
     assertTurnActive(turn);
@@ -327,8 +389,8 @@ export function createChatRuntimeService(
       modelType,
       prompt: promptContext.augmented,
       refFileIds: request.refFileIds,
-      thinkingEnabled: false,
-      searchEnabled: false,
+      thinkingEnabled: webChatMode.thinkingEnabled,
+      searchEnabled: webChatMode.searchEnabled,
       clientHeaders: headers,
     }, promptContext.enabledDescriptors, excludeTabId);
   };
@@ -414,7 +476,13 @@ export function createChatRuntimeService(
     apiKey: string,
     excludeTabId?: number,
   ): Promise<void> => {
-    const promptContext = await buildPrompt(request.text);
+    const promptContext = await buildPrompt(request.text, {
+      // The official API path carries its own thinking/reasoning settings, so
+      // the web toggles do not apply; search is an extension-side tool choice
+      // there and must not project the networking tools away.
+      thinkingEnabled: false,
+      searchEnabled: false,
+    });
     assertTurnActive(turn);
     const config = request.config ?? await dependencies.getOfficialApiChatConfig();
     assertTurnActive(turn);

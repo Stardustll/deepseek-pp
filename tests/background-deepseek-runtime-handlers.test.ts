@@ -48,6 +48,7 @@ const R43_COMMANDS = [
   'SAVE_OFFICIAL_API_CHAT_CONFIG',
   'EXPORT_DEEPSEEK_CONVERSATIONS',
   'CANCEL_DEEPSEEK_EXPORT',
+  'LIST_DEEPSEEK_CONVERSATIONS',
   'AUTH_STATUS_CHANGED',
 ] as const;
 
@@ -73,7 +74,7 @@ const extensionContext: RuntimeMessageContext = {
 };
 
 describe('R4.3 DeepSeek runtime ownership', () => {
-  it('creates exactly the assigned 16 typed handlers and eight receiving decoders', () => {
+  it('creates exactly the assigned 17 typed handlers and eight receiving decoders', () => {
     const handlers = createDeepSeekRuntimeHandlers({
       auth: createAuthDependencies(),
       multimodal: createMultimodalDependencies(),
@@ -86,8 +87,8 @@ describe('R4.3 DeepSeek runtime ownership', () => {
     });
     const types = handlers.map((handler) => handler.type);
 
-    expect(types).toHaveLength(16);
-    expect(new Set(types).size).toBe(16);
+    expect(types).toHaveLength(17);
+    expect(new Set(types).size).toBe(17);
     expect([...types].sort()).toEqual([...R43_COMMANDS].sort());
     expect(Object.keys(DEEPSEEK_RUNTIME_PAYLOAD_DECODERS).sort())
       .toEqual([...R43_PAYLOAD_COMMANDS].sort());
@@ -237,6 +238,11 @@ describe('interactive chat coordinator', () => {
 
     await expect(service.submitPrompt({ text: 'hello', refFileIds: ['file-1'] }, 17))
       .resolves.toEqual({ ok: true });
+    // Prefer one more real chunk: the wrapper admits the turn synchronously, so
+    // the first completion dispatch lands after the awaited mode/prompt reads.
+    // Waiting for it here keeps the assertions below independent of exactly how
+    // many awaits precede the submit call.
+    await waitForCall(dependencies.submitWebPrompt);
     expect(dependencies.submitWebPrompt).toHaveBeenCalledOnce();
     expect(dependencies.markChatLoopFinished).not.toHaveBeenCalled();
     const sessionSignal = vi.mocked(dependencies.createChatSession).mock.calls[0]![1];
@@ -271,6 +277,9 @@ describe('interactive chat coordinator', () => {
     await expect(service.submitPrompt({ text: 'hello', refFileIds: [] }, 17))
       .resolves.toEqual({ ok: true });
 
+    // The turn's mode/prompt reads are awaited before the completion dispatch,
+    // so wait for the captured callbacks instead of asserting synchronously.
+    await waitForCall(dependencies.broadcastChunk);
     expect(captured?.onReasoningChunk).toBeDefined();
     expect(dependencies.broadcastChunk).toHaveBeenNthCalledWith(1, {
       text: '',
@@ -729,6 +738,64 @@ describe('conversation export coordinator', () => {
     expect(vi.mocked(dependencies.broadcastProgress).mock.calls
       .map(([progress]) => progress.phase)).toEqual(['failed']);
   });
+
+  it('lists account conversations as references without message content', async () => {
+    const dependencies = createExportDependencies();
+    const listSessions = vi.fn(async () => ([
+      {
+        id: 'conv-1',
+        title: 'Architecture notes',
+        pinned: true,
+        titleType: null,
+        modelType: 'default',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-02T00:00:00Z',
+        raw: { chat_messages: [{ content: 'must not cross the boundary' }] },
+      },
+      {
+        id: 'conv-2',
+        title: 'Second',
+        pinned: false,
+        titleType: null,
+        modelType: null,
+        createdAt: null,
+        updatedAt: null,
+      },
+    ]));
+    vi.mocked(dependencies.createTransport).mockReturnValue({
+      listSessions,
+      fetchHistory: vi.fn(async () => ({})),
+      fetchFiles: vi.fn(async () => []),
+    });
+    const handlers = createConversationExportRuntimeHandlers(dependencies);
+
+    const result = await dispatch(handlers, { type: 'LIST_DEEPSEEK_CONVERSATIONS' });
+
+    expect(result).toEqual({
+      ok: true,
+      conversations: [
+        { id: 'conv-1', title: 'Architecture notes', pinned: true, updatedAt: '2026-01-02T00:00:00Z' },
+        { id: 'conv-2', title: 'Second', pinned: false, updatedAt: null },
+      ],
+    });
+    // The list is bounded and never walks the whole account history.
+    expect(listSessions).toHaveBeenCalledWith(expect.objectContaining({
+      pageSize: 30,
+      sessionLimit: 30,
+      includeRaw: false,
+    }));
+    expect(JSON.stringify(result)).not.toContain('must not cross the boundary');
+  });
+
+  it('reports missing auth for the conversation list instead of an empty list', async () => {
+    const dependencies = createExportDependencies();
+    vi.mocked(dependencies.loadClientHeaders).mockResolvedValue(null);
+    const handlers = createConversationExportRuntimeHandlers(dependencies);
+
+    await expect(dispatch(handlers, { type: 'LIST_DEEPSEEK_CONVERSATIONS' }))
+      .resolves.toEqual({ ok: false, error: 'Missing DeepSeek auth' });
+    expect(dependencies.createTransport).not.toHaveBeenCalled();
+  });
 });
 
 function createAuthDependencies(): DeepSeekAuthRuntimeHandlerDependencies {
@@ -775,6 +842,11 @@ function createChatDependencies(): ChatRuntimeServiceDependencies {
     getOfficialApiChatConfig: vi.fn(async () => officialConfig()),
     loadClientHeaders: vi.fn(async () => ({ Authorization: 'Bearer token' })),
     getModelType: vi.fn(async () => 'chat'),
+    // Default: both web-chat toggles off, matching the released behavior.
+    getWebChatOptions: vi.fn(async () => ({ thinkingEnabled: false, searchEnabled: false })),
+    // Default: unbound, so the sidepanel creates its own session as before.
+    getBoundConversation: vi.fn(async () => ({ conversationId: null, title: null, boundAt: null })),
+    resolveConversationLeafMessageId: vi.fn(async () => null),
     loadUploadLimits: vi.fn(async () => ({
       limits: {
         maxFileCount: 50,

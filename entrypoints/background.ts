@@ -98,6 +98,7 @@ import {
 } from '../core/browser-control';
 import { filterSidepanelChatToolDescriptors } from '../core/tool/sidepanel';
 import { filterRetiredModelFacingTools } from '../core/tool/model-facing';
+import { projectToolDescriptorsForNativeSearch } from '../core/tool/native-search-projection';
 import {
   addConversationToProject,
   bindPendingProjectConversation,
@@ -183,6 +184,8 @@ import {
   saveScenario,
 } from '../core/scenario/store';
 import { getChatEnabled } from '../core/chat/store';
+import { getWebChatOptions } from '../core/chat/web-chat-options';
+import { getBoundConversation } from '../core/chat/conversation-binding';
 import { pendingChatTextStore } from '../core/chat/pending-text';
 import {
   markChatLoopFinished,
@@ -228,7 +231,10 @@ import {
   loadClientHeadersFromStorage,
   uploadDeepSeekFile,
 } from '../core/deepseek/adapter';
-import { createDeepSeekAutomationClient } from '../core/deepseek/active-client';
+import {
+  createDeepSeekAutomationClient,
+  resolveConversationLeafMessageId,
+} from '../core/deepseek/active-client';
 import type { ResolvedDeepSeekUploadLimits } from '../core/deepseek/upload-limits';
 import { readDeepSeekUploadLimits } from '../core/deepseek/upload-limits-storage';
 import { submitOfficialDeepSeekStreaming } from '../core/deepseek/official-api';
@@ -320,6 +326,9 @@ const chatRuntimeService = createChatRuntimeService({
   getOfficialApiChatConfig,
   loadClientHeaders: loadOrRefreshClientHeaders,
   getModelType,
+  getWebChatOptions,
+  getBoundConversation,
+  resolveConversationLeafMessageId,
   loadUploadLimits: loadDeepSeekUploadLimits,
   refreshUploadLimits: refreshDeepSeekPageUploadLimits,
   buildPrompt: buildSidepanelPrompt,
@@ -1566,12 +1575,20 @@ async function buildSidepanelPrompt(request: ChatPromptBuildRequest): Promise<{
   // delivering files as artifact XML. The EXECUTION catalog (enabledDescriptors)
   // stays intact so residual artifact XML from in-flight sessions is still
   // parsed and executed instead of leaking into the displayed markdown.
-  const modelFacingDescriptors = filterRetiredModelFacingTools(enabledDescriptors);
+  //
+  // The page-native search projection is applied here too: when the sidepanel
+  // web-chat search toggle is on, the extension's own networking tools must
+  // disappear from the model-facing catalog exactly as they do on the
+  // content-script path (core/interceptor/request-augmentation.ts), otherwise
+  // the model would run a second search beside DeepSeek's own.
+  const modelFacingDescriptors = filterRetiredModelFacingTools(
+    projectToolDescriptorsForNativeSearch(enabledDescriptors, request.searchEnabled),
+  );
   const { augmented } = buildPromptAugmentation(request.prompt, {
     memories: memories.filter((memory) => memory.scope !== 'project'),
     presetContent: shouldInjectPreset ? activePreset?.content ?? null : null,
     toolDescriptors: modelFacingDescriptors,
-    thinkingEnabled: false,
+    thinkingEnabled: request.thinkingEnabled,
     locale: currentBackgroundLocale,
     memoryEnabled: promptSettings.memoryEnabled,
     systemPromptEnabled: promptSettings.systemPromptEnabled,

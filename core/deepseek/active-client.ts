@@ -475,6 +475,28 @@ async function requestCompletion(
   );
 }
 
+/**
+ * The assistant message a new turn in `chatSessionId` must chain from.
+ *
+ * `parentMessageId` on the completion body is the leaf the stream continues
+ * from, so continuing a conversation means resolving its latest message. Used
+ * when the sidepanel posts into a bound conversation it did not create and
+ * therefore has no in-memory chain state for.
+ */
+export async function resolveConversationLeafMessageId(
+  chatSessionId: string,
+  clientHeadersOverride?: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const snapshot = await readHistorySnapshotWithContext(
+    chatSessionId,
+    null,
+    clientHeadersOverride,
+    { signal },
+  );
+  return snapshot?.parentMessageId ?? null;
+}
+
 export async function readHistorySnapshot(
   chatSessionId: string,
   expectedAssistantMessageId: number,
@@ -491,7 +513,7 @@ export async function readHistorySnapshot(
 
 async function readHistorySnapshotWithContext(
   chatSessionId: string,
-  expectedAssistantMessageId: number,
+  expectedAssistantMessageId: number | null,
   clientHeadersOverride: Record<string, string> | undefined,
   context: DeepSeekRequestContext,
 ): Promise<DeepSeekHistorySnapshot | null> {
@@ -517,7 +539,11 @@ async function readHistorySnapshotWithContext(
     .filter((message: DeepSeekHistoryMessage): message is DeepSeekHistoryMessage => message.id !== null);
   if (messages.length === 0) return null;
 
-  const expected = messages.find((message) => message.id === expectedAssistantMessageId);
+  // `expectedAssistantMessageId === null` means "whichever assistant message is
+  // latest", which is how a bound conversation's continuation leaf is resolved.
+  const expected = expectedAssistantMessageId === null
+    ? undefined
+    : messages.find((message) => message.id === expectedAssistantMessageId);
   const latestAssistant =
     expected ??
     [...messages].reverse().find((message) => message.role !== 'user') ??

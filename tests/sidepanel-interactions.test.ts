@@ -578,10 +578,10 @@ describe('sidepanel interactions', () => {
     expect(onImported).not.toHaveBeenCalled();
   });
 
-  it('describes the merged web model instead of offering the removed mode picker', async () => {
+  it('exposes the web mode toggles instead of the removed mode picker', async () => {
     // The page merged 快速/专家/识图 into one model and moved thinking/search
-    // onto composer toggles, so the sidepanel must not present a mode picker
-    // nor issue SET_MODEL_TYPE from the chat page any more.
+    // onto composer toggles, so the sidepanel must offer those two toggles and
+    // must not issue SET_MODEL_TYPE from the chat page any more.
     const sendMessage = vi.fn(async (message: { type: string; payload?: unknown }) => {
       if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
       if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
@@ -597,8 +597,13 @@ describe('sidepanel interactions', () => {
     expect(sendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_MODEL_TYPE' }),
     );
-    expect(container.textContent).toContain('官网已把快速、专家、识图合并为同一个模型');
-    expect(container.querySelectorAll('.ds-chat-segment')).toHaveLength(0);
+    expect(container.textContent).toContain('不联网');
+    expect(container.textContent).toContain('联网');
+    // Both toggles default to the released "off" behavior.
+    const segments = Array.from(container.querySelectorAll('.ds-chat-segment'));
+    expect(segments.length).toBeGreaterThan(0);
+    expect(segments.filter((segment) => segment.className.includes('ds-chat-segment-active')))
+      .toHaveLength(2);
   });
 
   it('scrolls to the updated message height after the lazy rich renderer commits', async () => {
@@ -701,6 +706,9 @@ describe('sidepanel interactions', () => {
       payload: {
         text: '描述这张图片',
         refFileIds: ['file-image-1'],
+        // The web-chat mode toggles ride along on the submit payload.
+        thinkingEnabled: false,
+        searchEnabled: false,
       },
     });
   });
@@ -825,6 +833,9 @@ describe('trusted-directory @ file references', () => {
       payload: {
         text: '描述这张图片',
         refFileIds: ['file-image-1'],
+        // The web-chat mode toggles ride along on the submit payload.
+        thinkingEnabled: false,
+        searchEnabled: false,
       },
     });
   });
@@ -982,6 +993,18 @@ function stubChrome(sendMessage: ReturnType<typeof vi.fn>) {
         removeListener: vi.fn((listener: (message: unknown) => void) => {
           runtimeListeners = runtimeListeners.filter((item) => item !== listener);
         }),
+      },
+    },
+    // ChatPage reads the web-chat mode options from extension storage and
+    // mirrors them across sidepanel instances, so the stub needs both surfaces.
+    storage: {
+      local: {
+        get: vi.fn(async () => ({})),
+        set: vi.fn(async () => undefined),
+      },
+      onChanged: {
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
       },
     },
   });

@@ -97,12 +97,18 @@ export const DEEPSEEK_RUNTIME_PAYLOAD_DECODERS: DeepSeekRuntimePayloadDecoderMap
     if (typeof payload.text !== 'string') {
       throw new Error('CHAT_SUBMIT_PROMPT.payload.text must be a string.');
     }
+    // Additive optional mode flags: absent means "use the persisted setting", so
+    // a payload from an older surface still decodes unchanged.
+    optionalBoolean(payload.thinkingEnabled, 'CHAT_SUBMIT_PROMPT.payload.thinkingEnabled');
+    optionalBoolean(payload.searchEnabled, 'CHAT_SUBMIT_PROMPT.payload.searchEnabled');
     return {
       text: payload.text,
       ...(payload.config === undefined
         ? {}
         : { config: normalizeOfficialApiChatConfig(payload.config) }),
       refFileIds: coerceRefFileIds(payload.refFileIds),
+      ...(payload.thinkingEnabled === undefined ? {} : { thinkingEnabled: payload.thinkingEnabled as boolean }),
+      ...(payload.searchEnabled === undefined ? {} : { searchEnabled: payload.searchEnabled as boolean }),
     };
   },
   UPLOAD_DEEPSEEK_IMAGE(value) {
@@ -252,6 +258,12 @@ function coerceRefFileIds(value: unknown): string[] {
 function recordValue(value: unknown, label: string): Record<string, unknown> {
   if (!isPlainRuntimeRecord(value)) throw new Error(`${label} must be a plain object.`);
   return value;
+}
+
+/** Optional strict boolean: absent passes, anything non-boolean rejects. */
+function optionalBoolean(value: unknown, path: string): void {
+  if (value === undefined) return;
+  if (typeof value !== 'boolean') throw new Error(`${path} must be a boolean`);
 }
 
 function formatUploadBytes(bytes: number): string {

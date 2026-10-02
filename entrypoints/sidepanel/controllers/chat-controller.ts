@@ -4,6 +4,7 @@ import {
   type OfficialApiChatConfig,
 } from '../../../core/chat/official-api-config';
 import type { DeepSeekUploadedFile } from '../../../core/deepseek/contracts';
+import type { DeepSeekConversationSummary } from '../../../core/messaging/deepseek-runtime-contracts';
 import type { ModelType } from '../../../core/types';
 import {
   DEFAULT_VOICE_SETTINGS,
@@ -46,8 +47,13 @@ export interface ChatController {
     authStatus: ChatAuthStatus | null;
     config: OfficialApiChatConfig;
     refFileIds: string[];
+    /** Per-turn web-chat mode intent; omitted means "use the persisted setting". */
+    thinkingEnabled?: boolean;
+    searchEnabled?: boolean;
   }): Promise<void>;
   newSession(): Promise<void>;
+  /** One bounded page of the signed-in account's conversations (references only). */
+  listConversations(): Promise<DeepSeekConversationSummary[]>;
   setWebModelType(modelType: ModelType): Promise<void>;
   uploadImage(payload: {
     dataUrl: string;
@@ -103,7 +109,7 @@ export function createChatController(
       { type: 'SAVE_OFFICIAL_API_CHAT_CONFIG', payload: config },
       { decode: normalizeOfficialApiChatConfig },
     ),
-    async submitPrompt({ text, authStatus, config, refFileIds }) {
+    async submitPrompt({ text, authStatus, config, refFileIds, thinkingEnabled, searchEnabled }) {
       const capabilities = getChatProviderCapabilities(authStatus, null);
       await runtimeClient.request(
         {
@@ -112,6 +118,14 @@ export function createChatController(
             text,
             ...(capabilities.apiControlsEnabled ? { config } : {}),
             ...(capabilities.webControlsEnabled && refFileIds.length > 0 ? { refFileIds } : {}),
+            // Only the web path consumes these; the codec accepts them as
+            // optional so this stays additive.
+            ...(capabilities.webControlsEnabled && thinkingEnabled !== undefined
+              ? { thinkingEnabled }
+              : {}),
+            ...(capabilities.webControlsEnabled && searchEnabled !== undefined
+              ? { searchEnabled }
+              : {}),
           },
         },
         { decode: decodeAck },
@@ -123,6 +137,10 @@ export function createChatController(
         { decode: decodeAck },
       );
     },
+    listConversations: () => runtimeClient.request(
+      { type: 'LIST_DEEPSEEK_CONVERSATIONS' },
+      { decode: decodeConversationListResponse },
+    ),
     async setWebModelType(modelType) {
       await runtimeClient.request(
         { type: 'SET_MODEL_TYPE', payload: modelType },
@@ -194,6 +212,38 @@ export function getChatProviderCapabilities(
     // (no longer selectable) `vision` mode.
     visionAttachmentsEnabled: webControlsEnabled,
   };
+}
+
+function decodeConversationListResponse(value: unknown): DeepSeekConversationSummary[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid LIST_DEEPSEEK_CONVERSATIONS response.');
+  }
+  const response = value as Record<string, unknown>;
+  if (response.ok !== true) {
+    throw new Error(
+      typeof response.error === 'string' && response.error
+        ? response.error
+        : 'Invalid LIST_DEEPSEEK_CONVERSATIONS response.',
+    );
+  }
+  if (!Array.isArray(response.conversations)) {
+    throw new Error('LIST_DEEPSEEK_CONVERSATIONS response.conversations is missing.');
+  }
+  return response.conversations.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error(`LIST_DEEPSEEK_CONVERSATIONS response.conversations[${index}] is invalid.`);
+    }
+    const conversation = entry as Record<string, unknown>;
+    if (typeof conversation.id !== 'string' || !conversation.id) {
+      throw new Error(`LIST_DEEPSEEK_CONVERSATIONS response.conversations[${index}].id is missing.`);
+    }
+    return {
+      id: conversation.id,
+      title: typeof conversation.title === 'string' ? conversation.title : '',
+      pinned: conversation.pinned === true,
+      updatedAt: typeof conversation.updatedAt === 'string' ? conversation.updatedAt : null,
+    };
+  });
 }
 
 function decodeAck(value: unknown): void {

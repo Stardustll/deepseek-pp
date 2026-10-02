@@ -33,6 +33,22 @@ import {
 import { readDeepSeekUploadLimits } from '../../../core/deepseek/upload-limits-storage';
 import { parseAtTrigger } from '../../../core/trusted-directory/at-panel';
 import { normalizeImageMimeType } from '../../../core/trusted-directory/scan';
+import {
+  DEFAULT_WEB_CHAT_OPTIONS,
+  getWebChatOptions,
+  normalizeWebChatOptions,
+  saveWebChatOptions,
+  type WebChatOptions,
+} from '../../../core/chat/web-chat-options';
+import {
+  UNBOUND_CONVERSATION,
+  bindConversation,
+  clearBoundConversation,
+  getBoundConversation,
+  normalizeBoundConversation,
+  type BoundConversation,
+} from '../../../core/chat/conversation-binding';
+import type { DeepSeekConversationSummary } from '../../../core/messaging/deepseek-runtime-contracts';
 import type { ChatMessage as ChatMessageType, ModelType } from '../../../core/types';
 import AtFilePanel, { type AtAttachmentStatus } from '../components/AtFilePanel';
 import ChatMessage from '../components/ChatMessage';
@@ -115,6 +131,11 @@ export default function ChatPage() {
   const [atTrigger, setAtTrigger] = useState<{ active: boolean; query: string }>({ active: false, query: '' });
   const [msgSeq, setMsgSeq] = useState(0);
   const [uploadLimits, setUploadLimits] = useState<ResolvedDeepSeekUploadLimits>(FALLBACK_RESOLVED_UPLOAD_LIMITS);
+  const [webChatOptions, setWebChatOptions] = useState<WebChatOptions>(DEFAULT_WEB_CHAT_OPTIONS);
+  const [boundConversation, setBoundConversation] = useState<BoundConversation>(UNBOUND_CONVERSATION);
+  const [conversationPickerOpen, setConversationPickerOpen] = useState(false);
+  const [conversationList, setConversationList] = useState<DeepSeekConversationSummary[] | null>(null);
+  const [conversationListError, setConversationListError] = useState<string | null>(null);
   const { confirm, node: confirmNode } = useConfirm();
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -122,6 +143,8 @@ export default function ChatPage() {
   const messagesRef = useRef<ChatMessageType[]>([]);
   const imageAttachmentsRef = useRef<VisionImageAttachment[]>([]);
   const uploadLimitsRef = useRef<ResolvedDeepSeekUploadLimits>(FALLBACK_RESOLVED_UPLOAD_LIMITS);
+  const webChatOptionsRef = useRef<WebChatOptions>(DEFAULT_WEB_CHAT_OPTIONS);
+  const boundConversationRef = useRef<BoundConversation>(UNBOUND_CONVERSATION);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceSettingsRef = useRef<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
   const requestFence = useRef(createRequestGenerationFence());
@@ -205,6 +228,56 @@ export default function ChatPage() {
   useEffect(() => {
     uploadLimitsRef.current = uploadLimits;
   }, [uploadLimits]);
+
+  useEffect(() => {
+    webChatOptionsRef.current = webChatOptions;
+  }, [webChatOptions]);
+
+  useEffect(() => {
+    boundConversationRef.current = boundConversation;
+  }, [boundConversation]);
+
+  useEffect(() => {
+    // Reference-only binding; shared with the background, which reads the same
+    // key when it decides whether to reuse a conversation or create one.
+    let cancelled = false;
+    void getBoundConversation().then((bound) => {
+      if (!cancelled) setBoundConversation(bound);
+    }).catch((loadError) => {
+      if (!cancelled) setError(getRuntimeErrorMessage(loadError));
+    });
+    const handler = (changes: Record<string, chrome.storage.StorageChange>) => {
+      if ('deepseek_pp_bound_conversation' in changes) {
+        setBoundConversation(normalizeBoundConversation(changes.deepseek_pp_bound_conversation.newValue));
+      }
+    };
+    chrome.storage.onChanged.addListener(handler);
+    return () => {
+      cancelled = true;
+      chrome.storage.onChanged.removeListener(handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Shared with the background (which reads the same key when a turn omits the
+    // per-turn flags), and mirrored across sidepanel instances by storage events.
+    let cancelled = false;
+    void getWebChatOptions().then((options) => {
+      if (!cancelled) setWebChatOptions(options);
+    }).catch((loadError) => {
+      if (!cancelled) setError(getRuntimeErrorMessage(loadError));
+    });
+    const handler = (changes: Record<string, chrome.storage.StorageChange>) => {
+      if ('deepseek_pp_web_chat_options' in changes) {
+        setWebChatOptions(normalizeWebChatOptions(changes.deepseek_pp_web_chat_options.newValue));
+      }
+    };
+    chrome.storage.onChanged.addListener(handler);
+    return () => {
+      cancelled = true;
+      chrome.storage.onChanged.removeListener(handler);
+    };
+  }, []);
 
   useEffect(() => {
     // The page's own limits arrive through the extension cache, refreshed on the
@@ -336,6 +409,8 @@ export default function ChatPage() {
       authStatus,
       config: chatConfig,
       refFileIds,
+      thinkingEnabled: webChatOptionsRef.current.thinkingEnabled,
+      searchEnabled: webChatOptionsRef.current.searchEnabled,
     }).catch((submitError) => {
       setError(getRuntimeErrorMessage(submitError) || t('sidepanel.chatPage.sendFailed'));
       setIsStreaming(false);
@@ -359,6 +434,16 @@ export default function ChatPage() {
       setError(err instanceof Error ? err.message : String(err));
       return;
     }
+    resetLocalConversation();
+  };
+
+  /**
+   * Clears the sidepanel transcript without touching the background session.
+   * Switching the conversation target discards the transcript on purpose: those
+   * messages belong to the previous target, and keeping them would misrepresent
+   * what the next send continues from.
+   */
+  function resetLocalConversation() {
     messagesRef.current = [];
     setMessages([]);
     setError(null);
@@ -368,6 +453,61 @@ export default function ChatPage() {
     clearImageAttachments();
     stopVoiceInput();
     inputRef.current?.focus();
+  }
+
+  const openConversationPicker = async () => {
+    if (isStreaming) return;
+    setConversationPickerOpen(true);
+    setConversationListError(null);
+    try {
+      setConversationList(await chatController.listConversations());
+    } catch (err) {
+      setConversationList(null);
+      setConversationListError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const bindConversationTarget = async (conversation: DeepSeekConversationSummary) => {
+    if (isStreaming) return;
+    try {
+      const bound = await bindConversation(conversation.id, conversation.title || null);
+      setBoundConversation(bound);
+    } catch (err) {
+      setError(t('sidepanel.chatPage.conversationBoundFailed', {
+        error: err instanceof Error ? err.message : String(err),
+      }));
+      return;
+    }
+    // The next send must resolve the binding, so drop the background session id.
+    try {
+      await chatController.newSession();
+    } catch (err) {
+      setError(getRuntimeErrorMessage(err));
+      return;
+    }
+    resetLocalConversation();
+    setConversationPickerOpen(false);
+    setConversationList(null);
+  };
+
+  const unbindConversationTarget = async () => {
+    if (isStreaming) return;
+    try {
+      await clearBoundConversation();
+      setBoundConversation(UNBOUND_CONVERSATION);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    try {
+      await chatController.newSession();
+    } catch (err) {
+      setError(getRuntimeErrorMessage(err));
+      return;
+    }
+    resetLocalConversation();
+    setConversationPickerOpen(false);
+    setConversationList(null);
   };
 
   const retryLast = () => {
@@ -390,6 +530,19 @@ export default function ChatPage() {
   const handleEffortChange = (reasoningEffort: OfficialDeepSeekReasoningEffort) => {
     if (!apiControlsEnabled || isStreaming || chatConfig.thinking !== 'enabled') return;
     void saveChatConfig({ reasoningEffort });
+  };
+
+  const handleWebChatOptionChange = async (patch: Partial<WebChatOptions>) => {
+    if (!webControlsEnabled || isStreaming) return;
+    const previous = webChatOptionsRef.current;
+    const optimistic = normalizeWebChatOptions({ ...previous, ...patch });
+    setWebChatOptions(optimistic);
+    try {
+      setWebChatOptions(await saveWebChatOptions(patch));
+    } catch (err) {
+      setWebChatOptions(previous);
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const chooseImageFile = () => {
@@ -702,11 +855,126 @@ export default function ChatPage() {
 
         {webControlsEnabled && (
           <div className="ds-chat-config-panel">
-            <div className="ds-chat-control-group" aria-label={t('sidepanel.chatPage.modelLabel')}>
-              <span className="ds-chat-current-config">
-                {t('sidepanel.settings.modelModeDescription')}
-              </span>
+            <div className="ds-chat-control-row">
+              <div className="ds-chat-control-group" aria-label={t('sidepanel.chatPage.thinkingLabel')}>
+                <button
+                  type="button"
+                  disabled={isStreaming}
+                  title={t('sidepanel.chatPage.webThinkingHint')}
+                  onClick={() => void handleWebChatOptionChange({ thinkingEnabled: false })}
+                  className={`ds-chat-segment${webChatOptions.thinkingEnabled ? '' : ' ds-chat-segment-active'}`}
+                >
+                  {t('sidepanel.chatPage.thinkingOff')}
+                </button>
+                <button
+                  type="button"
+                  disabled={isStreaming}
+                  title={t('sidepanel.chatPage.webThinkingHint')}
+                  onClick={() => void handleWebChatOptionChange({ thinkingEnabled: true })}
+                  className={`ds-chat-segment${webChatOptions.thinkingEnabled ? ' ds-chat-segment-active' : ''}`}
+                >
+                  {t('sidepanel.chatPage.thinkingOn')}
+                </button>
+              </div>
+              <div className="ds-chat-control-group" aria-label={t('sidepanel.chatPage.webSearchLabel')}>
+                <button
+                  type="button"
+                  disabled={isStreaming}
+                  title={t('sidepanel.chatPage.webSearchHint')}
+                  onClick={() => void handleWebChatOptionChange({ searchEnabled: false })}
+                  className={`ds-chat-segment${webChatOptions.searchEnabled ? '' : ' ds-chat-segment-active'}`}
+                >
+                  {t('sidepanel.chatPage.webSearchOff')}
+                </button>
+                <button
+                  type="button"
+                  disabled={isStreaming}
+                  title={t('sidepanel.chatPage.webSearchHint')}
+                  onClick={() => void handleWebChatOptionChange({ searchEnabled: true })}
+                  className={`ds-chat-segment${webChatOptions.searchEnabled ? ' ds-chat-segment-active' : ''}`}
+                >
+                  {t('sidepanel.chatPage.webSearchOn')}
+                </button>
+              </div>
             </div>
+
+            <div className="ds-chat-control-row">
+              <span className="ds-chat-current-config" title={boundConversation.title ?? undefined}>
+                {boundConversation.conversationId
+                  ? t('sidepanel.chatPage.conversationBound')
+                  : t('sidepanel.chatPage.conversationOwn')}
+              </span>
+              <div className="ds-chat-control-group" aria-label={t('sidepanel.chatPage.conversationLabel')}>
+                <button
+                  type="button"
+                  disabled={isStreaming}
+                  aria-expanded={conversationPickerOpen}
+                  onClick={() => {
+                    if (conversationPickerOpen) {
+                      setConversationPickerOpen(false);
+                      return;
+                    }
+                    void openConversationPicker();
+                  }}
+                  className={`ds-chat-segment${conversationPickerOpen ? ' ds-chat-segment-active' : ''}`}
+                >
+                  {conversationPickerOpen
+                    ? t('sidepanel.chatPage.conversationClose')
+                    : t('sidepanel.chatPage.conversationPick')}
+                </button>
+                {boundConversation.conversationId && (
+                  <button
+                    type="button"
+                    disabled={isStreaming}
+                    onClick={() => void unbindConversationTarget()}
+                    className="ds-chat-segment"
+                  >
+                    {t('sidepanel.chatPage.conversationUnbind')}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {conversationPickerOpen && (
+              <div className="ds-chat-conversation-list" role="listbox" aria-label={t('sidepanel.chatPage.conversationPick')}>
+                {conversationListError && (
+                  <div className="ds-chat-conversation-empty">
+                    {t('sidepanel.chatPage.conversationPickerFailed', { error: conversationListError })}
+                  </div>
+                )}
+                {!conversationListError && conversationList === null && (
+                  <div className="ds-chat-conversation-empty">{t('common.loading')}</div>
+                )}
+                {!conversationListError && conversationList?.length === 0 && (
+                  <div className="ds-chat-conversation-empty">
+                    {t('sidepanel.chatPage.conversationPickerEmpty')}
+                  </div>
+                )}
+                {conversationList?.map((conversation) => {
+                  const active = conversation.id === boundConversation.conversationId;
+                  return (
+                    <button
+                      key={conversation.id}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      disabled={isStreaming}
+                      onClick={() => void bindConversationTarget(conversation)}
+                      className={`ds-chat-conversation-item${active ? ' ds-chat-conversation-item-active' : ''}`}
+                    >
+                      <span className="ds-chat-conversation-title">
+                        {conversation.title || conversation.id}
+                      </span>
+                      {active && (
+                        <span className="ds-chat-conversation-badge">
+                          {t('sidepanel.chatPage.conversationPickerCurrent')}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </header>

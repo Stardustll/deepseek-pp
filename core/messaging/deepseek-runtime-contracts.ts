@@ -31,6 +31,14 @@ export interface ChatSubmitPromptPayload {
   text: string;
   config?: Partial<OfficialApiChatConfig>;
   refFileIds?: unknown;
+  /**
+   * Sidepanel web-chat mode intent for THIS turn. Optional and additive: an
+   * older payload without them keeps decoding, and the background falls back to
+   * the persisted `deepseek_pp_web_chat_options`. Mirrors the page composer's
+   * DeepThink / Web search toggles, but only for requests the extension sends.
+   */
+  thinkingEnabled?: boolean;
+  searchEnabled?: boolean;
 }
 
 export interface DeepSeekImageUploadPayload {
@@ -54,6 +62,18 @@ export interface ConversationExportCommandPayload {
 export interface NormalizedConversationExportCommand {
   exportId?: string;
   request: ConversationExportRequest;
+}
+
+/**
+ * One DeepSeek account conversation, reduced to what the sidepanel list needs.
+ * Deliberately a reference: no message content crosses this contract, so the
+ * account and the page stay the single source of truth for history.
+ */
+export interface DeepSeekConversationSummary {
+  id: string;
+  title: string;
+  pinned: boolean;
+  updatedAt: string | null;
 }
 
 export interface DeepSeekRuntimeCommandContracts {
@@ -116,6 +136,10 @@ export interface DeepSeekRuntimeCommandContracts {
   CANCEL_DEEPSEEK_EXPORT: {
     request: { type: 'CANCEL_DEEPSEEK_EXPORT'; payload: { exportId?: string } };
     response: Ack | DomainFailure;
+  };
+  LIST_DEEPSEEK_CONVERSATIONS: {
+    request: DeclaredRuntimeRequest<'LIST_DEEPSEEK_CONVERSATIONS'>;
+    response: { ok: true; conversations: DeepSeekConversationSummary[] } | DomainFailure;
   };
   AUTH_STATUS_CHANGED: {
     request: { type: 'AUTH_STATUS_CHANGED' };

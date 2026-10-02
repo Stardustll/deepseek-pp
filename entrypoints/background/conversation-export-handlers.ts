@@ -14,6 +14,13 @@ import type {
   RunConversationExportInput,
 } from '../../core/export/service';
 import { defineDeepSeekPayloadRuntimeCommandHandler } from './runtime-handler';
+import { definePayloadlessRuntimeCommandHandler } from '../../core/messaging/runtime-command-registry';
+
+/**
+ * How many conversations the sidepanel picker asks for in one page. Bounded so
+ * opening the picker never walks an entire account history.
+ */
+const CONVERSATION_LIST_PAGE_SIZE = 30;
 
 interface ActiveConversationExport {
   ownerDocumentSessionId: string;
@@ -217,6 +224,31 @@ export function createConversationExportRuntimeHandlers(
       entry.controller.abort(new DOMException('Conversation export was cancelled.', 'AbortError'));
       await notifyCancelled(payload.exportId, entry);
       return { ok: true as const };
+    }),
+    definePayloadlessRuntimeCommandHandler('LIST_DEEPSEEK_CONVERSATIONS', async () => {
+      const headers = await dependencies.loadClientHeaders();
+      if (!headers) {
+        return { ok: false as const, error: dependencies.missingAuthMessage() };
+      }
+      const transport = dependencies.createTransport({
+        baseUrl: dependencies.baseUrl,
+        clientHeaders: headers,
+      });
+      const sessions = await transport.listSessions({
+        // One bounded page: the sidepanel shows a picker, not a full archive.
+        pageSize: CONVERSATION_LIST_PAGE_SIZE,
+        sessionLimit: CONVERSATION_LIST_PAGE_SIZE,
+        includeRaw: false,
+      });
+      return {
+        ok: true as const,
+        conversations: sessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          pinned: session.pinned,
+          updatedAt: session.updatedAt,
+        })),
+      };
     }),
   ]);
 }
