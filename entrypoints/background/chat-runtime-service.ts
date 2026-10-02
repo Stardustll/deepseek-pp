@@ -366,6 +366,11 @@ export function createChatRuntimeService(
         // a different conversation and would corrupt the new one.
         chatSessionId = null;
         chatParentMessageId = null;
+        // The official-API history is cleared too, even though this is the web
+        // path. Changing conversation targets must not carry ANY conversation
+        // state across, and a user can switch backends mid-session by
+        // adding/removing the API key; performSessionReset clears the same field
+        // for the same reason.
         officialApiChatMessages = [];
       }
       if (!chatSessionId) {
