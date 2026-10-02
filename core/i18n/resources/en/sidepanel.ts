@@ -735,6 +735,7 @@ export const sidepanel = {
     newSessionTitle: 'New session',
     newSession: 'New',
     newSessionConfirm: 'The current conversation will be cleared. Start a new session?',
+    newSessionConfirmBound: 'The current conversation will be cleared and the binding to “{title}” released, so later messages go to a new session. Continue?',
     empty: 'Type a message to start chatting',
     emptyHelp: 'You can also send selected webpage text from the context menu or insert a saved prompt.',
     inputPlaceholder: 'Message DeepSeek++',

@@ -940,6 +940,36 @@ describe('sidepanel interactions', () => {
       .toContain('这条消息不能丢');
   });
 
+  it('warns that a new session releases the conversation binding', async () => {
+    // A binding pins every send to one conversation, so "new session" unbinds.
+    // That must be stated, not left as a silent side effect of a dialog that
+    // only mentions clearing the transcript.
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      if (message.type === 'GET_DEEPSEEK_CONVERSATION_MESSAGES') {
+        return { ok: true, messages: [{ role: 'user', text: '历史消息', reasoning: null }] };
+      }
+      return null;
+    });
+    stubChrome(sendMessage, {
+      deepseek_pp_bound_conversation: { conversationId: 'conv-bound', title: '我的会话', boundAt: 1 },
+    });
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+    await flushPromises();
+    expect(container.textContent).toContain('历史消息');
+
+    await clickButtonByLabel('新建会话');
+    await flushPromises();
+
+    expect(container.textContent).toContain('解除与官网会话');
+    expect(container.textContent).toContain('我的会话');
+  });
+
   it('marks the bound conversation and the page-open one independently', async () => {
     const sendMessage = vi.fn(async (message: { type: string }) => {
       if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };

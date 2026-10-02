@@ -735,6 +735,7 @@ export const sidepanel = {
     newSessionTitle: '新建会话',
     newSession: '新建',
     newSessionConfirm: '当前对话内容将被清空，确定新建会话吗？',
+    newSessionConfirmBound: '当前对话内容将被清空，并解除与官网会话「{title}」的绑定，之后的消息会进入新会话。确定继续吗？',
     empty: '输入消息开始对话',
     emptyHelp: '也可以从网页右键发送选中文本，或从保存项插入常用 Prompt。',
     inputPlaceholder: '给 DeepSeek++ 发送消息',

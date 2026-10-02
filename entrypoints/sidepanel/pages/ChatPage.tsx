@@ -566,9 +566,15 @@ export default function ChatPage() {
   const newSession = async () => {
     // Confirm before discarding an in-progress conversation.
     if (messages.length > 0) {
+      // Starting a new session also releases a binding (a binding pins every
+      // send to one conversation). Say so instead of only warning about the
+      // transcript, which would make the unbinding a silent side effect.
+      const boundTitle = boundConversationRef.current.title;
       const ok = await confirm({
         title: t('sidepanel.chatPage.newSessionTitle'),
-        message: t('sidepanel.chatPage.newSessionConfirm'),
+        message: boundConversationRef.current.conversationId
+          ? t('sidepanel.chatPage.newSessionConfirmBound', { title: boundTitle ?? '' })
+          : t('sidepanel.chatPage.newSessionConfirm'),
         confirmLabel: t('sidepanel.chatPage.newSession'),
         cancelLabel: t('common.cancel'),
       });

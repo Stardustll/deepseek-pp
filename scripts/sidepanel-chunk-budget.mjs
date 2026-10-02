@@ -111,7 +111,7 @@ if (requestedBrowsers.some((browser) => !browser)) {
 // raw and gzip baselines below are set to the measured values.
 // The initial shell is sidepanel.html's entry script plus every static modulepreload.
 const BASELINE = Object.freeze({
-  initialShell: { raw: 382_564, gzip: 116_774 },
+  initialShell: { raw: 383_019, gzip: 116_893 },
   routeChunks: {
     ChatPage: { raw: 134_938, gzip: 40_056 },
     CapabilitiesPage: { raw: 160_137, gzip: 35_259 },
@@ -177,12 +177,12 @@ const BUDGET = Object.freeze({
   },
   // Raised with the initial shell by the same change: measured 422570 raw /
   // 129193 gzip on local Node-22.22.2.
-  firstChatScreen: { raw: 430_452, gzip: 131_155 },
+  firstChatScreen: { raw: 431_020, gzip: 131_299 },
   richRendererIncrement: { raw: 120_000, gzip: 36_000 },
   routeChunks: {
     // Raised again by the same change (mode toggles + conversation picker):
     // measured 33970 raw / 9565 gzip.
-    ChatPage: { raw: 41_744, gzip: 11_508 },
+    ChatPage: { raw: 41_857, gzip: 11_533 },
     LibraryPage: { raw: 2_500, gzip: 1_200 },
     MemoryPage: { raw: 6_000, gzip: 2_500 },
     SavedPage: { raw: 10_000, gzip: 4_000 },
