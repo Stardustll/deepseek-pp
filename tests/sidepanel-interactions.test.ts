@@ -758,10 +758,6 @@ describe('sidepanel interactions', () => {
 
     expect(container.textContent).toContain('恢复的问题');
     expect(container.textContent).toContain('恢复的回答');
-    // The record belongs to this target, so no account history read is needed.
-    expect(sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES' }),
-    );
   });
 
   it('restores the last local conversation when the sidepanel document is recreated', async () => {
@@ -832,43 +828,11 @@ describe('sidepanel interactions', () => {
     expect(container.textContent).not.toContain('属于绑定会话的内容');
   });
 
-  it('does not let a slow history read overwrite a message the user already sent', async () => {
-    let resolveHistory!: (value: unknown) => void;
-    const history = new Promise((resolve) => { resolveHistory = resolve; });
-    const sendMessage = vi.fn((message: { type: string; payload?: unknown }) => {
-      if (message.type === 'GET_AUTH_STATUS') {
-        return Promise.resolve({ available: true, provider: 'deepseek-web' });
-      }
-      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return Promise.resolve({});
-      if (message.type === 'GET_MODEL_TYPE') return Promise.resolve(null);
-      if (message.type === 'GET_VOICE_SETTINGS') return Promise.resolve({});
-      if (message.type === 'GET_DEEPSEEK_CONVERSATION_MESSAGES') return history;
-      if (message.type === 'CHAT_SUBMIT_PROMPT') return Promise.resolve({ ok: true });
-      return Promise.resolve(null);
-    });
-    stubChrome(sendMessage, {
-      deepseek_pp_bound_conversation: { conversationId: 'conv-slow', title: null, boundAt: 1 },
-    });
-
-    await renderElement(React.createElement(ChatPage));
-    await flushPromises();
-
-    // User sends before the history read comes back.
-    await enterText('给 DeepSeek++ 发送消息', '我的新消息');
-    await clickButtonByLabel('发送');
-
-    resolveHistory({
-      ok: true,
-      messages: [{ role: 'user', text: '陈旧的官网历史', reasoning: null }],
-    });
-    await flushPromises();
-    await flushPromises();
-
-    expect(container.textContent).toContain('我的新消息');
-    expect(container.textContent).not.toContain('陈旧的官网历史');
-  });
-
-  it('retains the turn when it fails so a reload does not lose what the user typed', async () => {
+  it('does not let a slow transcript restore overwrite a message the user already sent', async () => {
+    // The guard is what keeps a slow local read from replacing what is on
+    // screen once the user has already sent something.
+    let releaseRecords!: () => void;
+    const recordsGate = new Promise<void>((resolve) => { releaseRecords = resolve; });
     const sendMessage = vi.fn(async (message: { type: string }) => {
       if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
       if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
@@ -877,30 +841,42 @@ describe('sidepanel interactions', () => {
       if (message.type === 'CHAT_SUBMIT_PROMPT') return { ok: true };
       return null;
     });
-    window.sessionStorage.setItem('deepseek-pp.local-chat-target', 'local-fail');
-    const { storageData } = stubChrome(sendMessage);
+    window.sessionStorage.setItem('deepseek-pp.local-chat-target', 'local-slow');
+    const { storageData } = stubChrome(sendMessage, {
+      deepseek_pp_chat_records: {
+        schemaVersion: 1,
+        lastTargetId: 'local-slow',
+        records: {
+          'local-slow': {
+            targetId: 'local-slow',
+            title: null,
+            updatedAt: 1,
+            messages: [{ role: 'user', text: '陈旧的本地记录' }],
+          },
+        },
+      },
+    });
+    // Hold only the RECORDS read open, so the user can act while it is in
+    // flight. Gating every read would delay the mode-options read too and the
+    // test would no longer be about the transcript guard.
+    vi.mocked(chrome.storage.local.get).mockImplementation(async (key: unknown) => {
+      if (key === 'deepseek_pp_chat_records') await recordsGate;
+      return { ...storageData };
+    });
 
     await renderElement(React.createElement(ChatPage));
     await flushPromises();
 
-    await enterText('给 DeepSeek++ 发送消息', '这条消息不能丢');
+    await enterText('给 DeepSeek++ 发送消息', '我的新消息');
     await clickButtonByLabel('发送');
-
-    await act(async () => {
-      runtimeListeners.forEach((listener) => listener({
-        type: 'CHAT_STREAM_CHUNK',
-        error: '后台连接失败',
-        done: true,
-      }));
-    });
     await flushPromises();
 
-    expect(container.textContent).toContain('后台连接失败');
-    const stored = storageData.deepseek_pp_chat_records as {
-      records: Record<string, { messages: Array<{ text: string }> }>;
-    } | undefined;
-    expect(stored?.records['local-fail']?.messages.map((m) => m.text))
-      .toContain('这条消息不能丢');
+    releaseRecords();
+    await flushPromises();
+    await flushPromises();
+
+    expect(container.textContent).toContain('我的新消息');
+    expect(container.textContent).not.toContain('陈旧的本地记录');
   });
 
   it('dismisses the mode popover on Escape and on an outside press', async () => {

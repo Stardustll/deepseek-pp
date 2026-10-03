@@ -6,11 +6,11 @@
  * the sidepanel — or switching back to a conversation — restores what the user
  * saw.
  *
- * Keyed by "chat target": the DeepSeek conversation id when the sidepanel is
- * bound to one, or a locally generated id when the sidepanel owns its session.
- * That mirrors how the background resolves a session (see
- * core/chat/conversation-binding.ts), so a transcript is always filed under the
- * conversation it actually belongs to.
+ * Keyed by a sidepanel-owned "chat target" id. The sidepanel never adopts a
+ * DeepSeek account conversation (see the "Deliberately out of scope" note in
+ * docs/compatibility/platform-and-integrations.md), so the target is always a
+ * locally generated id — but it is still a key rather than a single slot, so
+ * several local conversations can be retained and listed.
  *
  * What is stored is the SIDE PANEL's view of a turn (user text + assistant
  * answer + reasoning), not a mirror of DeepSeek's account history. The account
