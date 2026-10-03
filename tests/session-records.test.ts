@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EMPTY_CHAT_RECORD_STATE,
+  clearChatRecords,
+  deleteChatRecord,
   getChatRecordState,
   normalizeChatRecordState,
   saveChatRecord,
@@ -50,6 +52,8 @@ describe('chat record retention', () => {
         { role: 'user', text: 'hi' },
         { role: 'assistant', text: 'hello', reasoningText: 'thinking' },
       ],
+      // No createdAt supplied, so it falls back to updatedAt.
+      createdAt: 10,
       updatedAt: 10,
     });
     // Persisted, not just returned.
@@ -80,6 +84,44 @@ describe('chat record retention', () => {
     stubStorage();
     await expect(saveChatRecord({ targetId: '   ', title: null, messages: [{ role: 'user', text: 'x' }], updatedAt: 1 }))
       .rejects.toThrow(/target id is required/);
+  });
+
+  it('keeps the original createdAt across later writes', async () => {
+    stubStorage();
+    await saveChatRecord({ targetId: 'conv-1', title: null, messages: [{ role: 'user', text: 'a' }], createdAt: 100, updatedAt: 100 });
+    const state = await saveChatRecord({ targetId: 'conv-1', title: null, messages: [{ role: 'user', text: 'b' }], createdAt: 999, updatedAt: 200 });
+
+    // The list orders by when a conversation started, so later writes must not
+    // move it.
+    expect(state.records['conv-1'].createdAt).toBe(100);
+    expect(state.records['conv-1'].updatedAt).toBe(200);
+  });
+
+  it('deletes one record and leaves the others alone', async () => {
+    stubStorage();
+    await saveChatRecord({ targetId: 'keep', title: null, messages: [{ role: 'user', text: 'a' }], updatedAt: 1 });
+    await saveChatRecord({ targetId: 'drop', title: null, messages: [{ role: 'user', text: 'b' }], updatedAt: 2 });
+
+    const state = await deleteChatRecord('drop');
+
+    expect(Object.keys(state.records)).toEqual(['keep']);
+    // The pointer moves off the deleted target rather than dangling.
+    expect(state.lastTargetId).toBe('keep');
+  });
+
+  it('rejects a blank delete id instead of silently doing nothing', async () => {
+    stubStorage();
+    await expect(deleteChatRecord('  ')).rejects.toThrow(/target id is required/);
+  });
+
+  it('clears every record on request', async () => {
+    const data = stubStorage();
+    await saveChatRecord({ targetId: 'a', title: null, messages: [{ role: 'user', text: 'x' }], updatedAt: 1 });
+
+    await clearChatRecords();
+
+    expect(data.deepseek_pp_chat_records).toBeUndefined();
+    await expect(getChatRecordState()).resolves.toEqual(EMPTY_CHAT_RECORD_STATE);
   });
 
   it('keeps both records when two saves overlap', async () => {
@@ -154,6 +196,17 @@ describe('chat record decoding', () => {
     });
 
     expect(state.lastTargetId).toBe('conv-2');
+  });
+
+  it('defaults a missing createdAt to updatedAt so old records stay ordered', () => {
+    const state = normalizeChatRecordState({
+      schemaVersion: 1,
+      records: {
+        'conv-1': { targetId: 'conv-1', messages: [{ role: 'user', text: 'a' }], updatedAt: 42 },
+      },
+    });
+
+    expect(state.records['conv-1'].createdAt).toBe(42);
   });
 
   it('bounds how many targets are retained, keeping the newest', () => {

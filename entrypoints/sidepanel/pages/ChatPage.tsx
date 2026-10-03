@@ -41,8 +41,11 @@ import {
   type WebChatOptions,
 } from '../../../core/chat/web-chat-options';
 import {
+  clearChatRecords,
+  deleteChatRecord,
   getChatRecordState,
   saveChatRecord,
+  type ChatRecordState,
   type StoredChatMessage,
 } from '../../../core/chat/session-records';
 import type { ChatMessage as ChatMessageType, ModelType } from '../../../core/types';
@@ -150,7 +153,14 @@ export default function ChatPage() {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [restoringTranscript, setRestoringTranscript] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState<ChatRecordState['records']>({});
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  // The target the transcript currently on screen belongs to. Needed so the
+  // history panel can tell "this is the open one" from "a different one".
   const localTargetIdRef = useRef<string>(resolveLocalChatTargetId());
+  const recordStartedAtRef = useRef<number>(Date.now());
+  const [activeTargetId, setActiveTargetId] = useState<string>(() => localTargetIdRef.current);
   const { confirm, node: confirmNode } = useConfirm();
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -184,6 +194,11 @@ export default function ChatPage() {
     return map;
   }, [imageAttachments]);
   const uploadAcceptAttribute = buildUploadAcceptAttribute(uploadLimits.limits);
+  // Newest conversation first, ordered by when each one started.
+  const historyEntries = useMemo(
+    () => Object.values(historyRecords).sort((a, b) => b.createdAt - a.createdAt),
+    [historyRecords],
+  );
   const canSendMessage = !isStreaming && !hasUploadingImageAttachment && !hasFailedImageAttachment && !!inputText.trim();
 
   const scrollMessagesToBottom = useCallback(() => {
@@ -422,8 +437,14 @@ export default function ChatPage() {
         // so a close-then-reopen would otherwise land on a fresh local target and
         // silently drop the transcript that is still on disk.
         const stored = resolveRestorableLocalTarget(state, localTargetIdRef.current);
-        const record = state.records[stored ?? localTargetIdRef.current];
+        const resolvedTarget = stored ?? localTargetIdRef.current;
+        const record = state.records[resolvedTarget];
         if (superseded()) return;
+        // Adopting the stored target means later writes and deletes address the
+        // conversation actually on screen.
+        localTargetIdRef.current = resolvedTarget;
+        recordStartedAtRef.current = Date.now();
+        setActiveTargetId(resolvedTarget);
         const restored: ChatMessageType[] = (record?.messages ?? []).map((message) => ({
           role: message.role,
           text: message.text,
@@ -559,6 +580,104 @@ export default function ChatPage() {
    */
   const currentTargetId = () => localTargetIdRef.current;
 
+  const refreshHistoryRecords = async () => {
+    setHistoryError(null);
+    try {
+      const state = await getChatRecordState();
+      setHistoryRecords(state.records);
+    } catch (historyLoadError) {
+      setHistoryRecords({});
+      setHistoryError(getRuntimeErrorMessage(historyLoadError));
+    }
+  };
+
+  const toggleHistory = async () => {
+    if (isStreaming) return;
+    if (historyOpen) {
+      setHistoryOpen(false);
+      return;
+    }
+    setHistoryOpen(true);
+    await refreshHistoryRecords();
+  };
+
+  /**
+   * Switches the sidepanel to a retained conversation.
+   *
+   * The outgoing transcript is written first, then the target is swapped and the
+   * restore effect (re-run via the target key) loads the selected one.
+   */
+  const openHistoryRecord = async (targetId: string) => {
+    if (isStreaming) return;
+    if (targetId === localTargetIdRef.current) {
+      setHistoryOpen(false);
+      return;
+    }
+    persistTranscript(messagesRef.current);
+    localTargetIdRef.current = targetId;
+    recordStartedAtRef.current = Date.now();
+    try {
+      window.sessionStorage.setItem(LOCAL_CHAT_TARGET_STORAGE_KEY, targetId);
+    } catch {}
+    setActiveTargetId(targetId);
+    messagesRef.current = [];
+    setMessages([]);
+    setHistoryOpen(false);
+  };
+
+  const removeHistoryRecord = async (targetId: string) => {
+    const ok = await confirm({
+      title: t('sidepanel.chatPage.historyDeleteTitle'),
+      message: t('sidepanel.chatPage.historyDeleteConfirm'),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
+    try {
+      const state = await deleteChatRecord(targetId);
+      setHistoryRecords(state.records);
+    } catch (deleteError) {
+      setHistoryError(getRuntimeErrorMessage(deleteError));
+      return;
+    }
+    // Deleting the open conversation leaves nothing to show, so start a fresh
+    // local target rather than keeping a transcript that no longer exists.
+    if (targetId === localTargetIdRef.current) {
+      localTargetIdRef.current = `local-${crypto.randomUUID?.() ?? String(Date.now())}`;
+      try {
+        window.sessionStorage.setItem(LOCAL_CHAT_TARGET_STORAGE_KEY, localTargetIdRef.current);
+      } catch {}
+      setActiveTargetId(localTargetIdRef.current);
+      messagesRef.current = [];
+      setMessages([]);
+    }
+  };
+
+  const removeAllHistoryRecords = async () => {
+    const ok = await confirm({
+      title: t('sidepanel.chatPage.historyClearTitle'),
+      message: t('sidepanel.chatPage.historyClearConfirm'),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
+    try {
+      await clearChatRecords();
+      setHistoryRecords({});
+    } catch (clearError) {
+      setHistoryError(getRuntimeErrorMessage(clearError));
+      return;
+    }
+    localTargetIdRef.current = `local-${crypto.randomUUID?.() ?? String(Date.now())}`;
+    try {
+      window.sessionStorage.setItem(LOCAL_CHAT_TARGET_STORAGE_KEY, localTargetIdRef.current);
+    } catch {}
+    setActiveTargetId(localTargetIdRef.current);
+    messagesRef.current = [];
+    setMessages([]);
+    setHistoryOpen(false);
+  };
+
   const persistTranscript = (messagesToStore: readonly ChatMessageType[]) => {
     const stored: StoredChatMessage[] = messagesToStore
       .filter((message) => message.text || message.reasoningText)
@@ -573,6 +692,7 @@ export default function ChatPage() {
       // second storage write.
       title: deriveRecordTitle(messagesToStore),
       messages: stored,
+      createdAt: recordStartedAtRef.current,
       updatedAt: Date.now(),
     }).catch((storeError) => {
       console.error('[DeepSeek++] chat record save failed', storeError);
@@ -1072,6 +1192,90 @@ export default function ChatPage() {
                   )}
                 </div>
               )}
+              <div className="ds-chat-history-control">
+                <button
+                  type="button"
+                  disabled={isStreaming}
+                  aria-expanded={historyOpen}
+                  onClick={() => void toggleHistory()}
+                  className={`ds-chat-mode-trigger${historyOpen ? ' ds-chat-mode-trigger-open' : ''}`}
+                  title={t('sidepanel.chatPage.historyLabel')}
+                  aria-label={t('sidepanel.chatPage.historyLabel')}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v5l3 2" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.05 11a9 9 0 1 0 2.4-6.1M3 4v4h4" />
+                  </svg>
+                </button>
+                {historyOpen && (
+                  <div className="ds-chat-history-panel" role="group" aria-label={t('sidepanel.chatPage.historyLabel')}>
+                    {historyError && (
+                      <div className="ds-chat-history-empty">
+                        {t('sidepanel.chatPage.historyFailed', { error: historyError })}
+                      </div>
+                    )}
+                    {!historyError && historyEntries.length === 0 && (
+                      <>
+                        <div className="ds-chat-history-empty">
+                          {t('sidepanel.chatPage.historyEmpty')}
+                        </div>
+                        <div className="ds-chat-history-help">
+                          {t('sidepanel.chatPage.historyEmptyHelp')}
+                        </div>
+                      </>
+                    )}
+                    {!historyError && historyEntries.length > 0 && (
+                      <>
+                        <div className="ds-chat-history-list">
+                          {historyEntries.map((record) => {
+                            const current = record.targetId === activeTargetId;
+                            return (
+                              <div
+                                key={record.targetId}
+                                className={`ds-chat-history-item${current ? ' ds-chat-history-item-current' : ''}`}
+                              >
+                                <button
+                                  type="button"
+                                  disabled={isStreaming}
+                                  onClick={() => void openHistoryRecord(record.targetId)}
+                                  className="ds-chat-history-open"
+                                  title={record.title ?? record.targetId}
+                                >
+                                  <span className="ds-chat-history-title">
+                                    {record.title ?? record.targetId}
+                                  </span>
+                                  <span className="ds-chat-history-meta">
+                                    {t('sidepanel.chatPage.historyMessageCount', { count: record.messages.length })}
+                                    {current ? ` · ${t('sidepanel.chatPage.historyCurrentBadge')}` : ''}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void removeHistoryRecord(record.targetId)}
+                                  className="ds-chat-history-delete"
+                                  title={t('sidepanel.chatPage.historyDelete', { title: record.title ?? record.targetId })}
+                                  aria-label={t('sidepanel.chatPage.historyDelete', { title: record.title ?? record.targetId })}
+                                >
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5h6v2M8 7l1 12h6l1-12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void removeAllHistoryRecords()}
+                          className="ds-chat-history-clear"
+                        >
+                          {t('sidepanel.chatPage.historyClear')}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
               <span className="ds-chat-current-config">
                 {apiControlsEnabled
                   ? getConfigLabel(chatConfig, t)

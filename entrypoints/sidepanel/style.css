@@ -1151,6 +1151,136 @@ input[type='range'] {
   cursor: not-allowed;
 }
 
+/* Local-history trigger and panel. Sits next to the mode trigger and reuses its
+   geometry so the composer's bottom-left stays one visual cluster. */
+.ds-chat-history-control {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.ds-chat-history-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: 14px;
+  background: var(--ds-card);
+  box-shadow: var(--ds-shadow-lg);
+  display: grid;
+  gap: 6px;
+}
+
+.ds-chat-history-list {
+  display: grid;
+  gap: 2px;
+}
+
+.ds-chat-history-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 7px;
+}
+
+.ds-chat-history-item-current {
+  background: var(--ds-blue-light);
+}
+
+.ds-chat-history-open {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ds-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-chat-history-open:hover:not(:disabled) {
+  background: var(--ds-card);
+}
+
+.ds-chat-history-open:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.ds-chat-history-title {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-chat-history-meta {
+  font-size: 10px;
+  color: var(--ds-text-tertiary);
+}
+
+.ds-chat-history-delete {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ds-text-tertiary);
+  cursor: pointer;
+}
+
+.ds-chat-history-delete svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ds-chat-history-delete:hover {
+  background: var(--ds-danger-bg);
+  color: var(--ds-danger);
+}
+
+.ds-chat-history-clear {
+  padding: 6px 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ds-danger);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ds-chat-history-clear:hover {
+  background: var(--ds-danger-bg);
+  border-color: var(--ds-danger-border);
+}
+
+.ds-chat-history-empty {
+  padding: 8px;
+  font-size: 11px;
+  color: var(--ds-text-tertiary);
+}
+
+.ds-chat-history-help {
+  padding: 0 8px 4px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ds-text-tertiary);
+}
+
 .ds-chat-mode-menu {
   position: absolute;
   bottom: calc(100% + 8px);

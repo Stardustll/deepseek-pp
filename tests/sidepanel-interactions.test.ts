@@ -879,6 +879,108 @@ describe('sidepanel interactions', () => {
     expect(container.textContent).not.toContain('陈旧的本地记录');
   });
 
+  it('lists local conversations, opens one, and deletes another', async () => {
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      return null;
+    });
+    window.sessionStorage.setItem('deepseek-pp.local-chat-target', 'local-current');
+    const { storageData } = stubChrome(sendMessage, {
+      deepseek_pp_chat_records: {
+        schemaVersion: 1,
+        lastTargetId: 'local-current',
+        records: {
+          'local-older': {
+            targetId: 'local-older',
+            title: '上一条对话',
+            messages: [{ role: 'user', text: '旧问题' }],
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          'local-current': {
+            targetId: 'local-current',
+            title: '当前对话',
+            messages: [{ role: 'user', text: '当前问题' }],
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        },
+      },
+    });
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+    await flushPromises();
+
+    const historyTrigger = container.querySelector('.ds-chat-history-control .ds-chat-mode-trigger') as HTMLButtonElement;
+    expect(historyTrigger).toBeTruthy();
+    await act(async () => {
+      historyTrigger.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushPromises();
+
+    const rows = Array.from(container.querySelectorAll('.ds-chat-history-item'));
+    expect(rows).toHaveLength(2);
+    // Newest conversation first.
+    expect(rows[0].textContent).toContain('当前对话');
+    expect(rows[0].textContent).toContain('当前');
+
+    // Opening the older one switches the sidepanel to it.
+    const openOlder = rows[1].querySelector('.ds-chat-history-open') as HTMLButtonElement;
+    await act(async () => {
+      openOlder.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushPromises();
+    expect(window.sessionStorage.getItem('deepseek-pp.local-chat-target')).toBe('local-older');
+
+    // Deleting the current record removes it from storage.
+    await act(async () => {
+      historyTrigger.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushPromises();
+    const deleteButton = container.querySelector('.ds-chat-history-delete') as HTMLButtonElement;
+    await act(async () => {
+      deleteButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushPromises();
+    const confirmButton = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === '删除') as HTMLButtonElement;
+    expect(confirmButton).toBeTruthy();
+    await act(async () => {
+      confirmButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushPromises();
+
+    const stored = storageData.deepseek_pp_chat_records as { records: Record<string, unknown> };
+    expect(Object.keys(stored.records)).toHaveLength(1);
+  });
+
+  it('shows an empty state when nothing has been retained yet', async () => {
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };
+      if (message.type === 'GET_OFFICIAL_API_CHAT_CONFIG') return {};
+      if (message.type === 'GET_MODEL_TYPE') return null;
+      if (message.type === 'GET_VOICE_SETTINGS') return {};
+      return null;
+    });
+    stubChrome(sendMessage);
+
+    await renderElement(React.createElement(ChatPage));
+    await flushPromises();
+
+    const historyTrigger = container.querySelector('.ds-chat-history-control .ds-chat-mode-trigger') as HTMLButtonElement;
+    await act(async () => {
+      historyTrigger.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushPromises();
+
+    expect(container.textContent).toContain('还没有本地对话记录');
+    expect(container.querySelectorAll('.ds-chat-history-item')).toHaveLength(0);
+  });
+
   it('dismisses the mode popover on Escape and on an outside press', async () => {
     const sendMessage = vi.fn(async (message: { type: string }) => {
       if (message.type === 'GET_AUTH_STATUS') return { available: true, provider: 'deepseek-web' };

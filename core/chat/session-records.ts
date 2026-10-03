@@ -44,11 +44,13 @@ export interface StoredChatMessage {
 }
 
 export interface StoredChatRecord {
-  /** Bound DeepSeek conversation id, or a local id when the sidepanel owns it. */
+  /** Sidepanel-owned conversation id. Never a DeepSeek account conversation id. */
   targetId: string;
-  /** Display-only; never used for identity. */
+  /** Derived from the first user message; display-only, never identity. */
   title: string | null;
   messages: StoredChatMessage[];
+  /** First write for this target; stays put across later writes. */
+  createdAt: number;
   updatedAt: number;
 }
 
@@ -85,6 +87,7 @@ export async function saveChatRecord(input: {
   targetId: string;
   title: string | null;
   messages: readonly StoredChatMessage[];
+  createdAt?: number;
   updatedAt: number;
 }): Promise<ChatRecordState> {
   const targetId = typeof input.targetId === 'string' ? input.targetId.trim() : '';
@@ -105,11 +108,19 @@ export async function saveChatRecord(input: {
     if (messages.length === 0) {
       delete records[targetId];
     } else {
+      const updatedAt = Number.isFinite(input.updatedAt) ? input.updatedAt : 0;
+      // An existing record keeps its original createdAt: the list is ordered by
+      // when a conversation started, not by its latest write.
+      const existingCreatedAt = records[targetId]?.createdAt;
+      const requestedCreatedAt = typeof input.createdAt === 'number' && Number.isFinite(input.createdAt)
+        ? input.createdAt
+        : null;
       records[targetId] = {
         targetId,
         title: typeof input.title === 'string' && input.title.trim() ? input.title.trim() : null,
         messages,
-        updatedAt: Number.isFinite(input.updatedAt) ? input.updatedAt : 0,
+        createdAt: existingCreatedAt ?? requestedCreatedAt ?? updatedAt,
+        updatedAt,
       };
     }
 
@@ -122,6 +133,39 @@ export async function saveChatRecord(input: {
     };
     await chrome.storage.local.set({ [STORAGE_KEY]: serialize(next) });
     return next;
+  });
+}
+
+/**
+ * Removes one retained transcript.
+ *
+ * Deleting a record never touches the DeepSeek account: nothing here was ever
+ * derived from it, so this only discards the sidepanel's own copy.
+ */
+export async function deleteChatRecord(targetId: string): Promise<ChatRecordState> {
+  const id = typeof targetId === 'string' ? targetId.trim() : '';
+  if (!id) throw new Error('A chat record target id is required.');
+
+  return recordsQueue.run(async () => {
+    const data = await chrome.storage.local.get(STORAGE_KEY) as Record<string, unknown>;
+    const state = normalizeChatRecordState(data[STORAGE_KEY]);
+    const records: ChatRecordStore = { ...state.records };
+    delete records[id];
+    const next: ChatRecordState = {
+      records,
+      lastTargetId: state.lastTargetId === id ? newestTargetId(records) : state.lastTargetId,
+    };
+    await chrome.storage.local.set({ [STORAGE_KEY]: serialize(next) });
+    return next;
+  });
+}
+
+/**
+ * Removes every retained transcript. Used by the explicit "clear all" action.
+ */
+export async function clearChatRecords(): Promise<void> {
+  await recordsQueue.run(async () => {
+    await chrome.storage.local.remove(STORAGE_KEY);
   });
 }
 
@@ -170,11 +214,16 @@ function normalizeStoredRecord(key: string, value: unknown): StoredChatRecord | 
     .slice(-MAX_MESSAGES_PER_RECORD);
   if (messages.length === 0) return null;
 
+  const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : 0;
+  const createdAt = typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt)
+    ? raw.createdAt
+    : updatedAt;
   return {
     targetId: key,
     title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : null,
     messages,
-    updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : 0,
+    createdAt,
+    updatedAt,
   };
 }
 
