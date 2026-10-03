@@ -2,7 +2,6 @@ import type { OfficialApiChatConfig } from '../../core/chat/official-api-config-
 import type { ChatLoopProvider, InterruptedChatLoop } from '../../core/chat/active-loop';
 import type { ModelTurn, SubmitPromptInput } from '../../core/deepseek/automation-client-port';
 import type { WebChatOptions } from '../../core/chat/web-chat-options';
-import type { BoundConversation } from '../../core/chat/conversation-binding';
 import type { DeepSeekUploadedFile } from '../../core/deepseek/contracts';
 import {
   effectiveUploadMaxBytes,
@@ -65,12 +64,6 @@ export interface ChatRuntimeServiceDependencies {
   loadClientHeaders(preferredTabId?: number): Promise<Record<string, string> | null>;
   getModelType(): Promise<string | null>;
   getWebChatOptions(): Promise<WebChatOptions>;
-  getBoundConversation(): Promise<BoundConversation>;
-  resolveConversationLeafMessageId(
-    chatSessionId: string,
-    clientHeaders: Record<string, string>,
-    signal?: AbortSignal,
-  ): Promise<number | null>;
   loadUploadLimits(): Promise<ResolvedDeepSeekUploadLimits>;
   refreshUploadLimits(preferredTabId?: number): Promise<boolean>;
   buildPrompt(request: ChatPromptBuildRequest): Promise<ChatPromptBuildResult>;
@@ -348,44 +341,12 @@ export function createChatRuntimeService(
       return;
     }
 
-    // The binding is authoritative for EVERY turn, not just the first one.
-    //
-    // `chatSessionId` is cached across turns and is normally only cleared by the
-    // sidepanel calling CHAT_NEW_SESSION. If that call fails, or the binding
-    // changed some other way, the cache would still hold the previous
-    // conversation and this turn would silently post into the WRONG one. So the
-    // target is re-derived each turn: same target keeps the cached chain state
-    // (parent message, official-API history), a different target drops it.
-    const bound = await dependencies.getBoundConversation();
-    assertTurnActive(turn);
-    const targetConversationId = bound.conversationId;
-
-    if (targetConversationId) {
-      if (chatSessionId !== targetConversationId) {
-        // Switching targets discards the old chain: its parent message belongs to
-        // a different conversation and would corrupt the new one.
-        chatSessionId = null;
-        chatParentMessageId = null;
-        // The official-API history is cleared too, even though this is the web
-        // path. Changing conversation targets must not carry ANY conversation
-        // state across, and a user can switch backends mid-session by
-        // adding/removing the API key; performSessionReset clears the same field
-        // for the same reason.
-        officialApiChatMessages = [];
-      }
-      if (!chatSessionId) {
-        // The chain leaf comes from history because this process did not create
-        // the conversation.
-        const leafMessageId = await dependencies.resolveConversationLeafMessageId(
-          targetConversationId,
-          headers,
-          turn.controller.signal,
-        );
-        assertTurnActive(turn);
-        chatSessionId = targetConversationId;
-        chatParentMessageId = leafMessageId;
-      }
-    } else if (!chatSessionId) {
+    // The sidepanel owns its own web conversation. It never adopts a DeepSeek
+    // account conversation: reading or continuing those would mean driving the
+    // signed-in account beyond what the user is doing on the page, which is a
+    // ban-risk behaviour. Local history (core/chat/session-records.ts) is what
+    // gives the user continuity across reloads instead.
+    if (!chatSessionId) {
       const nextSessionId = await dependencies.createChatSession(
         headers,
         turn.controller.signal,

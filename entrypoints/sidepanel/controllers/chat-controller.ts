@@ -4,10 +4,6 @@ import {
   type OfficialApiChatConfig,
 } from '../../../core/chat/official-api-config';
 import type { DeepSeekUploadedFile } from '../../../core/deepseek/contracts';
-import type {
-  DeepSeekConversationMessage,
-  DeepSeekConversationSummary,
-} from '../../../core/messaging/deepseek-runtime-contracts';
 import type { ModelType } from '../../../core/types';
 import {
   DEFAULT_VOICE_SETTINGS,
@@ -55,16 +51,6 @@ export interface ChatController {
     searchEnabled?: boolean;
   }): Promise<void>;
   newSession(): Promise<void>;
-  /** One bounded page of the signed-in account's conversations (references only). */
-  listConversations(): Promise<DeepSeekConversationSummary[]>;
-  /** Read one conversation's messages so the sidepanel can render real history. */
-  loadConversationMessages(conversationId: string): Promise<DeepSeekConversationMessage[]>;
-  /**
-   * The conversation the DeepSeek PAGE currently has open, or null when the
-   * active tab is not on one. Used to mark it in the picker, which is a
-   * different thing from "the conversation the sidepanel is bound to".
-   */
-  loadCurrentPageConversationId(): Promise<string | null>;
   setWebModelType(modelType: ModelType): Promise<void>;
   uploadImage(payload: {
     dataUrl: string;
@@ -148,18 +134,6 @@ export function createChatController(
         { decode: decodeAck },
       );
     },
-    listConversations: () => runtimeClient.request(
-      { type: 'LIST_DEEPSEEK_CONVERSATIONS' },
-      { decode: decodeConversationListResponse },
-    ),
-    loadConversationMessages: (conversationId) => runtimeClient.request(
-      { type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES', payload: { conversationId } },
-      { decode: decodeConversationMessagesResponse },
-    ),
-    loadCurrentPageConversationId: () => runtimeClient.request(
-      { type: 'GET_CURRENT_DEEPSEEK_CONVERSATION' },
-      { acceptFailure: true, decode: decodeCurrentPageConversationId },
-    ),
     async setWebModelType(modelType) {
       await runtimeClient.request(
         { type: 'SET_MODEL_TYPE', payload: modelType },
@@ -231,87 +205,6 @@ export function getChatProviderCapabilities(
     // (no longer selectable) `vision` mode.
     visionAttachmentsEnabled: webControlsEnabled,
   };
-}
-
-function decodeConversationListResponse(value: unknown): DeepSeekConversationSummary[] {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Invalid LIST_DEEPSEEK_CONVERSATIONS response.');
-  }
-  const response = value as Record<string, unknown>;
-  if (response.ok !== true) {
-    throw new Error(
-      typeof response.error === 'string' && response.error
-        ? response.error
-        : 'Invalid LIST_DEEPSEEK_CONVERSATIONS response.',
-    );
-  }
-  if (!Array.isArray(response.conversations)) {
-    throw new Error('LIST_DEEPSEEK_CONVERSATIONS response.conversations is missing.');
-  }
-  return response.conversations.map((entry, index) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new Error(`LIST_DEEPSEEK_CONVERSATIONS response.conversations[${index}] is invalid.`);
-    }
-    const conversation = entry as Record<string, unknown>;
-    if (typeof conversation.id !== 'string' || !conversation.id) {
-      throw new Error(`LIST_DEEPSEEK_CONVERSATIONS response.conversations[${index}].id is missing.`);
-    }
-    return {
-      id: conversation.id,
-      title: typeof conversation.title === 'string' ? conversation.title : '',
-      pinned: conversation.pinned === true,
-      updatedAt: typeof conversation.updatedAt === 'string' ? conversation.updatedAt : null,
-    };
-  });
-}
-
-/**
- * The page's current conversation id, or null.
- *
- * The background reports `{ok:false, error:'no_active_deepseek_conversation'}`
- * (or `no_current_conversation` when the tab has no conversation open) — both
- * ordinary states here, where the picker simply shows no "open on page" mark,
- * not failures to surface.
- */
-function decodeCurrentPageConversationId(value: unknown): string | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const response = value as Record<string, unknown>;
-  if (response.ok !== true) return null;
-  const conversation = response.conversation;
-  if (!conversation || typeof conversation !== 'object' || Array.isArray(conversation)) return null;
-  const id = (conversation as Record<string, unknown>).conversationId;
-  return typeof id === 'string' && id ? id : null;
-}
-
-function decodeConversationMessagesResponse(value: unknown): DeepSeekConversationMessage[] {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Invalid GET_DEEPSEEK_CONVERSATION_MESSAGES response.');
-  }
-  const response = value as Record<string, unknown>;
-  if (response.ok !== true) {
-    throw new Error(
-      typeof response.error === 'string' && response.error
-        ? response.error
-        : 'Invalid GET_DEEPSEEK_CONVERSATION_MESSAGES response.',
-    );
-  }
-  if (!Array.isArray(response.messages)) {
-    throw new Error('GET_DEEPSEEK_CONVERSATION_MESSAGES response.messages is missing.');
-  }
-  return response.messages.map((entry, index) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new Error(`GET_DEEPSEEK_CONVERSATION_MESSAGES response.messages[${index}] is invalid.`);
-    }
-    const message = entry as Record<string, unknown>;
-    if (message.role !== 'user' && message.role !== 'assistant') {
-      throw new Error(`GET_DEEPSEEK_CONVERSATION_MESSAGES response.messages[${index}].role is invalid.`);
-    }
-    return {
-      role: message.role,
-      text: typeof message.text === 'string' ? message.text : '',
-      reasoning: typeof message.reasoning === 'string' && message.reasoning ? message.reasoning : null,
-    };
-  });
 }
 
 function decodeAck(value: unknown): void {

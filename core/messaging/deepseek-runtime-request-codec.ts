@@ -47,7 +47,6 @@ interface DecodedDeepSeekRuntimePayloads {
   SAVE_OFFICIAL_API_CHAT_CONFIG: OfficialApiChatConfig;
   EXPORT_DEEPSEEK_CONVERSATIONS: NormalizedConversationExportCommand;
   CANCEL_DEEPSEEK_EXPORT: { exportId?: string };
-  GET_DEEPSEEK_CONVERSATION_MESSAGES: { conversationId: string };
 }
 
 export type DeepSeekRuntimePayloadCommandType = keyof DecodedDeepSeekRuntimePayloads;
@@ -129,14 +128,6 @@ export const DEEPSEEK_RUNTIME_PAYLOAD_DECODERS: DeepSeekRuntimePayloadDecoderMap
       ...(exportId ? { exportId } : {}),
       request: normalizeConversationExportRequest(payload.request),
     };
-  },
-  GET_DEEPSEEK_CONVERSATION_MESSAGES(value) {
-    const payload = recordValue(value, 'GET_DEEPSEEK_CONVERSATION_MESSAGES.payload');
-    const conversationId = typeof payload.conversationId === 'string' ? payload.conversationId.trim() : '';
-    if (!conversationId) {
-      throw new Error('GET_DEEPSEEK_CONVERSATION_MESSAGES.payload.conversationId must be a non-empty string.');
-    }
-    return { conversationId };
   },
   CANCEL_DEEPSEEK_EXPORT(value) {
     const payload = recordValue(value, 'CANCEL_DEEPSEEK_EXPORT.payload');

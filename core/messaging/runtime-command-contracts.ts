@@ -136,8 +136,6 @@ export const RUNTIME_COMMAND_CONTRACTS = {
   REMOVE_CONVERSATION_FROM_PROJECT: typedCommand('payload-decoded', 'ack'),
   SET_PENDING_PROJECT_CONTEXT: typedCommand('payload-decoded', 'ack'),
   GET_CURRENT_DEEPSEEK_CONVERSATION: typedCommand('none', 'status-or-domain-error'),
-  LIST_DEEPSEEK_CONVERSATIONS: typedCommand('none', 'status-or-domain-error'),
-  GET_DEEPSEEK_CONVERSATION_MESSAGES: typedCommand('payload-decoded', 'status-or-domain-error'),
   GET_PROJECT_CONTEXT_FOR_CONVERSATION: typedCommand('payload-decoded', 'nullable-value'),
   GET_ARTIFACT: typedCommand('payload-decoded', 'status-or-domain-error'),
   GET_CONFIG: typedCommand('none', 'value'),

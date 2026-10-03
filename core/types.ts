@@ -639,8 +639,6 @@ export type MessageAction =
   | { type: 'REMOVE_CONVERSATION_FROM_PROJECT'; payload: { conversationId: string } }
   | { type: 'SET_PENDING_PROJECT_CONTEXT'; payload: { projectId: string | null } }
   | { type: 'GET_CURRENT_DEEPSEEK_CONVERSATION' }
-  | { type: 'LIST_DEEPSEEK_CONVERSATIONS' }
-  | { type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES'; payload: { conversationId: string } }
   | { type: 'GET_PROJECT_CONTEXT_FOR_CONVERSATION'; payload: { conversation: ProjectConversationInput; bindPendingProject?: boolean } }
   | { type: 'GET_ARTIFACT'; payload: { id: string } }
   | { type: 'GET_CONFIG' }

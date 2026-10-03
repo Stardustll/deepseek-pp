@@ -41,18 +41,6 @@ import {
   type WebChatOptions,
 } from '../../../core/chat/web-chat-options';
 import {
-  UNBOUND_CONVERSATION,
-  bindConversation,
-  clearBoundConversation,
-  getBoundConversation,
-  normalizeBoundConversation,
-  type BoundConversation,
-} from '../../../core/chat/conversation-binding';
-import type {
-  DeepSeekConversationMessage,
-  DeepSeekConversationSummary,
-} from '../../../core/messaging/deepseek-runtime-contracts';
-import {
   getChatRecordState,
   saveChatRecord,
   type StoredChatMessage,
@@ -159,12 +147,6 @@ export default function ChatPage() {
   const [msgSeq, setMsgSeq] = useState(0);
   const [uploadLimits, setUploadLimits] = useState<ResolvedDeepSeekUploadLimits>(FALLBACK_RESOLVED_UPLOAD_LIMITS);
   const [webChatOptions, setWebChatOptions] = useState<WebChatOptions>(DEFAULT_WEB_CHAT_OPTIONS);
-  const [boundConversation, setBoundConversation] = useState<BoundConversation>(UNBOUND_CONVERSATION);
-  const [conversationPickerOpen, setConversationPickerOpen] = useState(false);
-  const [conversationList, setConversationList] = useState<DeepSeekConversationSummary[] | null>(null);
-  const [conversationListError, setConversationListError] = useState<string | null>(null);
-  const [pageConversationId, setPageConversationId] = useState<string | null>(null);
-  const [conversationFilter, setConversationFilter] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [restoringTranscript, setRestoringTranscript] = useState(false);
@@ -177,7 +159,6 @@ export default function ChatPage() {
   const imageAttachmentsRef = useRef<VisionImageAttachment[]>([]);
   const uploadLimitsRef = useRef<ResolvedDeepSeekUploadLimits>(FALLBACK_RESOLVED_UPLOAD_LIMITS);
   const webChatOptionsRef = useRef<WebChatOptions>(DEFAULT_WEB_CHAT_OPTIONS);
-  const boundConversationRef = useRef<BoundConversation>(UNBOUND_CONVERSATION);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceSettingsRef = useRef<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
   const requestFence = useRef(createRequestGenerationFence());
@@ -203,15 +184,6 @@ export default function ChatPage() {
     return map;
   }, [imageAttachments]);
   const uploadAcceptAttribute = buildUploadAcceptAttribute(uploadLimits.limits);
-  // Filtering is by title only; the id is shown as a fallback label but is not
-  // something a user searches for.
-  const filteredConversations = useMemo(() => {
-    if (!conversationList) return null;
-    const needle = conversationFilter.trim().toLowerCase();
-    if (!needle) return conversationList;
-    return conversationList.filter((conversation) =>
-      (conversation.title || conversation.id).toLowerCase().includes(needle));
-  }, [conversationList, conversationFilter]);
   const canSendMessage = !isStreaming && !hasUploadingImageAttachment && !hasFailedImageAttachment && !!inputText.trim();
 
   const scrollMessagesToBottom = useCallback(() => {
@@ -274,31 +246,6 @@ export default function ChatPage() {
   useEffect(() => {
     webChatOptionsRef.current = webChatOptions;
   }, [webChatOptions]);
-
-  useEffect(() => {
-    boundConversationRef.current = boundConversation;
-  }, [boundConversation]);
-
-  useEffect(() => {
-    // Reference-only binding; shared with the background, which reads the same
-    // key when it decides whether to reuse a conversation or create one.
-    let cancelled = false;
-    void getBoundConversation().then((bound) => {
-      if (!cancelled) setBoundConversation(bound);
-    }).catch((loadError) => {
-      if (!cancelled) setError(getRuntimeErrorMessage(loadError));
-    });
-    const handler = (changes: Record<string, chrome.storage.StorageChange>) => {
-      if ('deepseek_pp_bound_conversation' in changes) {
-        setBoundConversation(normalizeBoundConversation(changes.deepseek_pp_bound_conversation.newValue));
-      }
-    };
-    chrome.storage.onChanged.addListener(handler);
-    return () => {
-      cancelled = true;
-      chrome.storage.onChanged.removeListener(handler);
-    };
-  }, []);
 
   useEffect(() => {
     // Shared with the background (which reads the same key when a turn omits the
@@ -451,72 +398,39 @@ export default function ChatPage() {
     };
   }, [modeMenuOpen]);
 
-  // Escape also dismisses the conversation picker.
-  useEffect(() => {
-    if (!conversationPickerOpen) return;
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setConversationPickerOpen(false);
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [conversationPickerOpen]);
-
   /**
-   * Restores the transcript for the current target.
+   * Restores the locally retained transcript for this sidepanel's own session.
    *
-   * A bound conversation reads the account's own history, so page-side turns are
-   * included and the account stays authoritative. An unbound sidepanel session
-   * restores the locally retained record. Either failure falls back to the local
-   * record rather than showing an empty chat.
+   * Nothing is read from the DeepSeek account: the sidepanel only ever replays
+   * what it stored itself, so no account conversation is ever driven on the
+   * user's behalf.
    */
   useEffect(() => {
     if (!authStatus) return;
     let cancelled = false;
-    const targetId = boundConversation.conversationId;
 
     // A restore that lands after the user already started typing or sent a turn
-    // must not replace what is on screen. Read-only reads can take a while on a
-    // long conversation, so this is a real window, not a theoretical one.
+    // must not replace what is on screen.
     const superseded = () => cancelled || messagesRef.current.length > 0;
-
-    const applyRestored = (restored: ChatMessageType[]): boolean => {
-      if (superseded()) return false;
-      messagesRef.current = restored;
-      setMessages(restored);
-      return true;
-    };
-
-    const restoreFromLocalRecord = async () => {
-      const state = await getChatRecordState();
-      if (superseded()) return;
-      // `sessionStorage` is cleared when the sidepanel document is destroyed, so
-      // a close-then-reopen would otherwise land on a fresh local target and
-      // silently drop the transcript that is still on disk. The stored pointer
-      // is what makes reopen restore the previous conversation.
-      const stored = targetId ? null : resolveRestorableLocalTarget(state, localTargetIdRef.current);
-      const record = state.records[targetId ?? stored ?? localTargetIdRef.current];
-      applyRestored((record?.messages ?? []).map((message) => ({
-        role: message.role,
-        text: message.text,
-        ...(message.reasoningText ? { reasoningText: message.reasoningText } : {}),
-      })));
-    };
 
     const run = async () => {
       setRestoringTranscript(true);
       try {
-        if (targetId) {
-          try {
-            const history = await chatController.loadConversationMessages(targetId);
-            if (applyRestored(history.map(toChatMessage))) return;
-            if (superseded()) return;
-          } catch (historyError) {
-            // Fall through to the retained record; a failed read must not blank
-            // the transcript.
-            console.error('[DeepSeek++] conversation history restore failed', historyError);
-          }
-        }
-        await restoreFromLocalRecord();
+        const state = await getChatRecordState();
+        if (superseded()) return;
+        // `sessionStorage` is cleared when the sidepanel document is destroyed,
+        // so a close-then-reopen would otherwise land on a fresh local target and
+        // silently drop the transcript that is still on disk.
+        const stored = resolveRestorableLocalTarget(state, localTargetIdRef.current);
+        const record = state.records[stored ?? localTargetIdRef.current];
+        if (superseded()) return;
+        const restored: ChatMessageType[] = (record?.messages ?? []).map((message) => ({
+          role: message.role,
+          text: message.text,
+          ...(message.reasoningText ? { reasoningText: message.reasoningText } : {}),
+        }));
+        messagesRef.current = restored;
+        setMessages(restored);
       } catch (restoreError) {
         if (!cancelled) setError(getRuntimeErrorMessage(restoreError));
       } finally {
@@ -526,8 +440,7 @@ export default function ChatPage() {
 
     void run();
     return () => { cancelled = true; };
-    // Re-runs when the target changes (bind / unbind / first auth resolution).
-  }, [authStatus, boundConversation.conversationId]);
+  }, [authStatus]);
 
   // Best-effort retention for a reload that happens mid-conversation.
   useEffect(() => () => {
@@ -576,15 +489,9 @@ export default function ChatPage() {
   const newSession = async () => {
     // Confirm before discarding an in-progress conversation.
     if (messages.length > 0) {
-      // Starting a new session also releases a binding (a binding pins every
-      // send to one conversation). Say so instead of only warning about the
-      // transcript, which would make the unbinding a silent side effect.
-      const boundTitle = boundConversationRef.current.title;
       const ok = await confirm({
         title: t('sidepanel.chatPage.newSessionTitle'),
-        message: boundConversationRef.current.conversationId
-          ? t('sidepanel.chatPage.newSessionConfirmBound', { title: boundTitle ?? '' })
-          : t('sidepanel.chatPage.newSessionConfirm'),
+        message: t('sidepanel.chatPage.newSessionConfirm'),
         confirmLabel: t('sidepanel.chatPage.newSession'),
         cancelLabel: t('common.cancel'),
       });
@@ -594,12 +501,6 @@ export default function ChatPage() {
     persistTranscript(messagesRef.current);
     try {
       await chatController.newSession();
-      // A binding pins every send to one conversation, so "new session" has to
-      // release it; otherwise the next message would continue the bound chat.
-      if (boundConversationRef.current.conversationId) {
-        await clearBoundConversation();
-        setBoundConversation(UNBOUND_CONVERSATION);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return;
@@ -630,83 +531,6 @@ export default function ChatPage() {
     inputRef.current?.focus();
   }
 
-  const openConversationPicker = async () => {
-    if (isStreaming) return;
-    setConversationPickerOpen(true);
-    setConversationListError(null);
-    setConversationFilter('');
-    try {
-      // The page's own open conversation is a separate fact from the sidepanel's
-      // binding, so both marks can be shown at once.
-      const [conversations, currentPageId] = await Promise.all([
-        chatController.listConversations(),
-        chatController.loadCurrentPageConversationId().catch(() => null),
-      ]);
-      setConversationList(conversations);
-      setPageConversationId(currentPageId);
-    } catch (err) {
-      setConversationList(null);
-      setConversationListError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const bindConversationTarget = async (conversation: DeepSeekConversationSummary) => {
-    if (isStreaming) return;
-    // Re-selecting the already-bound conversation must not clear the transcript:
-    // the target does not change, so the restore effect would not re-run and the
-    // chat would be left empty.
-    if (boundConversationRef.current.conversationId === conversation.id) {
-      setConversationPickerOpen(false);
-      setConversationList(null);
-      return;
-    }
-    // Keep the transcript we are navigating away from.
-    persistTranscript(messagesRef.current);
-    try {
-      const bound = await bindConversation(conversation.id, conversation.title ?? null);
-      // Clear BEFORE publishing the new target: the restore effect below fills
-      // the transcript for the new target, so clearing afterwards would wipe
-      // whatever it just loaded.
-      resetLocalConversation();
-      setBoundConversation(bound);
-    } catch (err) {
-      setError(t('sidepanel.chatPage.conversationBoundFailed', {
-        error: err instanceof Error ? err.message : String(err),
-      }));
-      return;
-    }
-    // The next send must resolve the binding, so drop the background session id.
-    try {
-      await chatController.newSession();
-    } catch (err) {
-      setError(getRuntimeErrorMessage(err));
-    }
-    setConversationPickerOpen(false);
-    setConversationList(null);
-  };
-
-  const unbindConversationTarget = async () => {
-    if (isStreaming) return;
-    persistTranscript(messagesRef.current);
-    try {
-      await clearBoundConversation();
-      // Same ordering rule as binding: clear first, then publish the target so
-      // the restore effect owns what ends up on screen.
-      resetLocalConversation();
-      setBoundConversation(UNBOUND_CONVERSATION);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      return;
-    }
-    try {
-      await chatController.newSession();
-    } catch (err) {
-      setError(getRuntimeErrorMessage(err));
-    }
-    setConversationPickerOpen(false);
-    setConversationList(null);
-  };
-
   const retryLast = () => {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
     if (!lastUser) return;
@@ -733,8 +557,7 @@ export default function ChatPage() {
    * Which record the current transcript belongs to: the bound DeepSeek
    * conversation, or this sidepanel instance's own local session.
    */
-  const currentTargetId = () =>
-    boundConversationRef.current.conversationId ?? localTargetIdRef.current;
+  const currentTargetId = () => localTargetIdRef.current;
 
   const persistTranscript = (messagesToStore: readonly ChatMessageType[]) => {
     const stored: StoredChatMessage[] = messagesToStore
@@ -746,7 +569,9 @@ export default function ChatPage() {
       }));
     void saveChatRecord({
       targetId: currentTargetId(),
-      title: boundConversationRef.current.title,
+      // Derived from the transcript so the history list has a label without a
+      // second storage write.
+      title: deriveRecordTitle(messagesToStore),
       messages: stored,
       updatedAt: Date.now(),
     }).catch((storeError) => {
@@ -1083,110 +908,6 @@ export default function ChatPage() {
           </div>
         )}
 
-        {webControlsEnabled && (
-          <div className="ds-chat-config-panel">
-            <div className="ds-chat-control-row">
-              <span className="ds-chat-current-config" title={boundConversation.title ?? undefined}>
-                {boundConversation.conversationId
-                  ? t('sidepanel.chatPage.conversationBound')
-                  : t('sidepanel.chatPage.conversationOwn')}
-              </span>
-              <div className="ds-chat-control-group" aria-label={t('sidepanel.chatPage.conversationLabel')}>
-                <button
-                  type="button"
-                  disabled={isStreaming}
-                  aria-expanded={conversationPickerOpen}
-                  onClick={() => {
-                    if (conversationPickerOpen) {
-                      setConversationPickerOpen(false);
-                      return;
-                    }
-                    void openConversationPicker();
-                  }}
-                  className={`ds-chat-segment${conversationPickerOpen ? ' ds-chat-segment-active' : ''}`}
-                >
-                  {conversationPickerOpen
-                    ? t('sidepanel.chatPage.conversationClose')
-                    : t('sidepanel.chatPage.conversationPick')}
-                </button>
-                {boundConversation.conversationId && (
-                  <button
-                    type="button"
-                    disabled={isStreaming}
-                    onClick={() => void unbindConversationTarget()}
-                    className="ds-chat-segment"
-                  >
-                    {t('sidepanel.chatPage.conversationUnbind')}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {conversationPickerOpen && (
-              <div className="ds-chat-conversation-list" role="listbox" aria-label={t('sidepanel.chatPage.conversationPick')}>
-                {conversationList && conversationList.length > 0 && (
-                  <input
-                    type="text"
-                    value={conversationFilter}
-                    onChange={(event) => setConversationFilter(event.target.value)}
-                    placeholder={t('sidepanel.chatPage.conversationFilterPlaceholder')}
-                    aria-label={t('sidepanel.chatPage.conversationFilterPlaceholder')}
-                    className="ds-chat-conversation-filter"
-                  />
-                )}
-                {conversationListError && (
-                  <div className="ds-chat-conversation-empty">
-                    {t('sidepanel.chatPage.conversationPickerFailed', { error: conversationListError })}
-                  </div>
-                )}
-                {!conversationListError && conversationList === null && (
-                  <div className="ds-chat-conversation-empty">{t('common.loading')}</div>
-                )}
-                {!conversationListError && conversationList?.length === 0 && (
-                  <div className="ds-chat-conversation-empty">
-                    {t('sidepanel.chatPage.conversationPickerEmpty')}
-                  </div>
-                )}
-                {filteredConversations?.length === 0 && (conversationList?.length ?? 0) > 0 && !conversationListError && (
-                  <div className="ds-chat-conversation-empty">
-                    {t('sidepanel.chatPage.conversationFilterNoMatch')}
-                  </div>
-                )}
-                {filteredConversations?.map((conversation) => {
-                  const bound = conversation.id === boundConversation.conversationId;
-                  const openOnPage = conversation.id === pageConversationId;
-                  return (
-                    <button
-                      key={conversation.id}
-                      type="button"
-                      role="option"
-                      aria-selected={bound}
-                      disabled={isStreaming}
-                      onClick={() => void bindConversationTarget(conversation)}
-                      className={`ds-chat-conversation-item${bound ? ' ds-chat-conversation-item-active' : ''}`}
-                    >
-                      <span className="ds-chat-conversation-title">
-                        {conversation.title || conversation.id}
-                      </span>
-                      <span className="ds-chat-conversation-badges">
-                        {bound && (
-                          <span className="ds-chat-conversation-badge">
-                            {t('sidepanel.chatPage.conversationPickerBound')}
-                          </span>
-                        )}
-                        {openOnPage && (
-                          <span className="ds-chat-conversation-badge ds-chat-conversation-badge-page">
-                            {t('sidepanel.chatPage.conversationPickerCurrent')}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
       </header>
 
       <div ref={listRef} className="ds-chat-messages">
@@ -1441,12 +1162,17 @@ function resolveRestorableLocalTarget(
   return state.records[lastTargetId] ? lastTargetId : null;
 }
 
-function toChatMessage(message: DeepSeekConversationMessage): ChatMessageType {
-  return {
-    role: message.role,
-    text: message.text,
-    ...(message.reasoning ? { reasoningText: message.reasoning } : {}),
-  };
+/**
+ * A short label for a retained transcript: the first user message, trimmed.
+ *
+ * The history list needs something human-readable, and the first user turn is
+ * the best available proxy for "what was this conversation about".
+ */
+function deriveRecordTitle(messages: readonly ChatMessageType[]): string | null {
+  const firstUser = messages.find((message) => message.role === 'user' && message.text.trim());
+  if (!firstUser) return null;
+  const text = firstUser.text.replace(/\s+/g, ' ').trim();
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 
 function getWebModelLabel(

@@ -48,8 +48,6 @@ const R43_COMMANDS = [
   'SAVE_OFFICIAL_API_CHAT_CONFIG',
   'EXPORT_DEEPSEEK_CONVERSATIONS',
   'CANCEL_DEEPSEEK_EXPORT',
-  'LIST_DEEPSEEK_CONVERSATIONS',
-  'GET_DEEPSEEK_CONVERSATION_MESSAGES',
   'AUTH_STATUS_CHANGED',
 ] as const;
 
@@ -62,7 +60,6 @@ const R43_PAYLOAD_COMMANDS = [
   'SAVE_OFFICIAL_API_CHAT_CONFIG',
   'EXPORT_DEEPSEEK_CONVERSATIONS',
   'CANCEL_DEEPSEEK_EXPORT',
-  'GET_DEEPSEEK_CONVERSATION_MESSAGES',
 ] as const;
 
 const extensionContext: RuntimeMessageContext = {
@@ -76,7 +73,7 @@ const extensionContext: RuntimeMessageContext = {
 };
 
 describe('R4.3 DeepSeek runtime ownership', () => {
-  it('creates exactly the assigned 18 typed handlers and nine receiving decoders', () => {
+  it('creates exactly the assigned 16 typed handlers and eight receiving decoders', () => {
     const handlers = createDeepSeekRuntimeHandlers({
       auth: createAuthDependencies(),
       multimodal: createMultimodalDependencies(),
@@ -89,8 +86,8 @@ describe('R4.3 DeepSeek runtime ownership', () => {
     });
     const types = handlers.map((handler) => handler.type);
 
-    expect(types).toHaveLength(18);
-    expect(new Set(types).size).toBe(18);
+    expect(types).toHaveLength(16);
+    expect(new Set(types).size).toBe(16);
     expect([...types].sort()).toEqual([...R43_COMMANDS].sort());
     expect(Object.keys(DEEPSEEK_RUNTIME_PAYLOAD_DECODERS).sort())
       .toEqual([...R43_PAYLOAD_COMMANDS].sort());
@@ -301,59 +298,6 @@ describe('interactive chat coordinator', () => {
       phase: 'answer',
     }, 17);
     await waitForCall(dependencies.markChatLoopFinished);
-  });
-
-  it('re-targets the bound conversation every turn instead of trusting the cached session', async () => {
-    // `chatSessionId` is cached across turns and is normally cleared by
-    // CHAT_NEW_SESSION. If that call fails the cache would still hold the
-    // previous conversation, so a turn must re-derive its target from the
-    // binding rather than post into the wrong conversation.
-    const dependencies = createChatDependencies();
-    const bound = { conversationId: 'conv-first' as string | null, title: null, boundAt: 1 };
-    vi.mocked(dependencies.getBoundConversation).mockImplementation(async () => ({ ...bound }));
-    vi.mocked(dependencies.resolveConversationLeafMessageId).mockResolvedValue(7);
-    vi.mocked(dependencies.submitWebPrompt).mockImplementation(async () => modelTurn('done', 101));
-    const service = createChatRuntimeService(dependencies);
-
-    await expect(service.submitPrompt({ text: 'first', refFileIds: [] }, 17)).resolves.toEqual({ ok: true });
-    await waitForCalls(dependencies.submitWebPrompt, 1);
-    expect(vi.mocked(dependencies.submitWebPrompt).mock.calls[0]![0])
-      .toMatchObject({ chatSessionId: 'conv-first' });
-
-    // The user binds a different conversation but the background session was
-    // never reset (the sidepanel's reset call failed).
-    bound.conversationId = 'conv-second';
-
-    await expect(service.submitPrompt({ text: 'second', refFileIds: [] }, 17)).resolves.toEqual({ ok: true });
-    await waitForCalls(dependencies.submitWebPrompt, 2);
-    expect(vi.mocked(dependencies.submitWebPrompt).mock.calls[1]![0])
-      .toMatchObject({ chatSessionId: 'conv-second' });
-    // Switching targets must not inherit the previous conversation's chain leaf.
-    expect(vi.mocked(dependencies.resolveConversationLeafMessageId))
-      .toHaveBeenLastCalledWith('conv-second', expect.anything(), expect.anything());
-    expect(dependencies.createChatSession).not.toHaveBeenCalled();
-  });
-
-  it('keeps the same conversation across turns without re-resolving its chain leaf', async () => {
-    const dependencies = createChatDependencies();
-    vi.mocked(dependencies.getBoundConversation).mockResolvedValue({
-      conversationId: 'conv-stable',
-      title: null,
-      boundAt: 1,
-    });
-    vi.mocked(dependencies.resolveConversationLeafMessageId).mockResolvedValue(3);
-    vi.mocked(dependencies.submitWebPrompt).mockImplementation(async () => modelTurn('done', 101));
-    const service = createChatRuntimeService(dependencies);
-
-    await service.submitPrompt({ text: 'one', refFileIds: [] }, 17);
-    await waitForCalls(dependencies.submitWebPrompt, 1);
-    await service.submitPrompt({ text: 'two', refFileIds: [] }, 17);
-    await waitForCalls(dependencies.submitWebPrompt, 2);
-
-    // The chain leaf is resolved once; later turns reuse the cached chain state.
-    expect(dependencies.resolveConversationLeafMessageId).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(dependencies.submitWebPrompt).mock.calls[1]![0])
-      .toMatchObject({ chatSessionId: 'conv-stable' });
   });
 
   it('rejects concurrent turns and prevents late chunks after a session reset', async () => {
@@ -794,162 +738,6 @@ describe('conversation export coordinator', () => {
       .map(([progress]) => progress.phase)).toEqual(['failed']);
   });
 
-  it('lists account conversations as references without message content', async () => {
-    const dependencies = createExportDependencies();
-    const listSessions = vi.fn(async () => ([
-      {
-        id: 'conv-1',
-        title: 'Architecture notes',
-        pinned: true,
-        titleType: null,
-        modelType: 'default',
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-02T00:00:00Z',
-        raw: { chat_messages: [{ content: 'must not cross the boundary' }] },
-      },
-      {
-        id: 'conv-2',
-        title: 'Second',
-        pinned: false,
-        titleType: null,
-        modelType: null,
-        createdAt: null,
-        updatedAt: null,
-      },
-    ]));
-    vi.mocked(dependencies.createTransport).mockReturnValue({
-      listSessions,
-      fetchHistory: vi.fn(async () => ({})),
-      fetchFiles: vi.fn(async () => []),
-    });
-    const handlers = createConversationExportRuntimeHandlers(dependencies);
-
-    const result = await dispatch(handlers, { type: 'LIST_DEEPSEEK_CONVERSATIONS' });
-
-    expect(result).toEqual({
-      ok: true,
-      conversations: [
-        { id: 'conv-1', title: 'Architecture notes', pinned: true, updatedAt: '2026-01-02T00:00:00Z' },
-        { id: 'conv-2', title: 'Second', pinned: false, updatedAt: null },
-      ],
-    });
-    // The list is bounded and never walks the whole account history.
-    expect(listSessions).toHaveBeenCalledWith(expect.objectContaining({
-      pageSize: 30,
-      sessionLimit: 30,
-      includeRaw: false,
-    }));
-    expect(JSON.stringify(result)).not.toContain('must not cross the boundary');
-  });
-
-  it('strips browser-control tool XML even when that capability is currently disabled', async () => {
-    const dependencies = createExportDependencies();
-    // Live catalog omits browser control (it is off); the stored history still
-    // contains its calls, so cleanup must still recognize the tags.
-    vi.mocked(dependencies.getToolDescriptors).mockResolvedValue([]);
-    vi.mocked(dependencies.createTransport).mockReturnValue({
-      listSessions: vi.fn(async () => []),
-      fetchHistory: vi.fn(async () => ({
-        data: {
-          biz_data: {
-            chat_messages: [{
-              message_id: 1,
-              role: 'ASSISTANT',
-              content: 'let me look\n<browser_evaluate_script>\n{"script":"1+1"}\n</browser_evaluate_script>\ndone',
-            }],
-          },
-        },
-      })),
-      fetchFiles: vi.fn(async () => []),
-    });
-    const handlers = createConversationExportRuntimeHandlers(dependencies);
-
-    const result = await dispatch(handlers, {
-      type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES',
-      payload: { conversationId: 'conv-1' },
-    });
-
-    expect(JSON.stringify(result)).not.toContain('browser_evaluate_script');
-    expect(JSON.stringify(result)).toContain('let me look');
-  });
-
-  it('renders account history without the extension\'s own continuation turns', async () => {
-    const dependencies = createExportDependencies();
-    vi.mocked(dependencies.createTransport).mockReturnValue({
-      listSessions: vi.fn(async () => []),
-      fetchHistory: vi.fn(async () => ({
-        data: {
-          biz_data: {
-            chat_messages: [
-              { message_id: 1, role: 'USER', content: 'real question' },
-              {
-                message_id: 2,
-                role: 'ASSISTANT',
-                content: 'real answer',
-                fragments: [
-                  { type: 'THINK', content: 'weighing options' },
-                  { type: 'RESPONSE', content: 'real answer' },
-                ],
-              },
-              // The extension's own tool-loop round: the page hides these, so the
-              // restored transcript must too.
-              {
-                message_id: 3,
-                role: 'USER',
-                content: '<original_task>t</original_task>\n<tool_results>{"ok":true}</tool_results>',
-              },
-              {
-                message_id: 5,
-                role: 'USER',
-                content: '[TOOL_RESULTS]\n{"ok":true}\n[/TOOL_RESULTS]\n\n请根据上述工具执行结果继续回答。',
-              },
-              { message_id: 4, role: 'SYSTEM', content: 'internal' },
-            ],
-          },
-        },
-      })),
-      fetchFiles: vi.fn(async () => []),
-    });
-    const handlers = createConversationExportRuntimeHandlers(dependencies);
-
-    const result = await dispatch(handlers, {
-      type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES',
-      payload: { conversationId: 'conv-1' },
-    });
-
-    expect(result).toEqual({
-      ok: true,
-      messages: [
-        { role: 'user', text: 'real question', reasoning: null },
-        { role: 'assistant', text: 'real answer', reasoning: 'weighing options' },
-      ],
-    });
-    const serialized = JSON.stringify(result);
-    expect(serialized).not.toContain('original_task');
-    expect(serialized).not.toContain('tool_results');
-    expect(serialized).not.toContain('TOOL_RESULTS');
-  });
-
-  it('rejects a blank conversation id before any auth or network work', async () => {
-    const dependencies = createExportDependencies();
-    const handlers = createConversationExportRuntimeHandlers(dependencies);
-
-    await expect(dispatch(handlers, {
-      type: 'GET_DEEPSEEK_CONVERSATION_MESSAGES',
-      payload: { conversationId: '   ' },
-    })).rejects.toThrow(/conversationId/);
-    expect(dependencies.loadClientHeaders).not.toHaveBeenCalled();
-  });
-
-  it('reports missing auth for the conversation list instead of an empty list', async () => {
-    const dependencies = createExportDependencies();
-    vi.mocked(dependencies.loadClientHeaders).mockResolvedValue(null);
-    const handlers = createConversationExportRuntimeHandlers(dependencies);
-
-    await expect(dispatch(handlers, { type: 'LIST_DEEPSEEK_CONVERSATIONS' }))
-      .resolves.toEqual({ ok: false, error: 'Missing DeepSeek auth' });
-    expect(dependencies.createTransport).not.toHaveBeenCalled();
-  });
 });
 
 function createAuthDependencies(): DeepSeekAuthRuntimeHandlerDependencies {
@@ -999,8 +787,6 @@ function createChatDependencies(): ChatRuntimeServiceDependencies {
     // Default: both web-chat toggles off, matching the released behavior.
     getWebChatOptions: vi.fn(async () => ({ thinkingEnabled: false, searchEnabled: false })),
     // Default: unbound, so the sidepanel creates its own session as before.
-    getBoundConversation: vi.fn(async () => ({ conversationId: null, title: null, boundAt: null })),
-    resolveConversationLeafMessageId: vi.fn(async () => null),
     loadUploadLimits: vi.fn(async () => ({
       limits: {
         maxFileCount: 50,
@@ -1041,7 +827,6 @@ function createExportDependencies(): ConversationExportRuntimeHandlerDependencie
     getExtensionVersion: vi.fn(() => '1.10.0'),
     createExportId: vi.fn(() => 'generated-export'),
     loadClientHeaders: vi.fn(async () => ({ Authorization: 'Bearer token' })),
-    getToolDescriptors: vi.fn(async () => []),
     createTransport: vi.fn(() => ({
       listSessions: vi.fn(async () => []),
       fetchHistory: vi.fn(async () => ({})),

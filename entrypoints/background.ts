@@ -185,7 +185,6 @@ import {
 } from '../core/scenario/store';
 import { getChatEnabled } from '../core/chat/store';
 import { getWebChatOptions } from '../core/chat/web-chat-options';
-import { getBoundConversation } from '../core/chat/conversation-binding';
 import { pendingChatTextStore } from '../core/chat/pending-text';
 import {
   markChatLoopFinished,
@@ -233,7 +232,6 @@ import {
 } from '../core/deepseek/adapter';
 import {
   createDeepSeekAutomationClient,
-  resolveConversationLeafMessageId,
 } from '../core/deepseek/active-client';
 import type { ResolvedDeepSeekUploadLimits } from '../core/deepseek/upload-limits';
 import { readDeepSeekUploadLimits } from '../core/deepseek/upload-limits-storage';
@@ -327,8 +325,6 @@ const chatRuntimeService = createChatRuntimeService({
   loadClientHeaders: loadOrRefreshClientHeaders,
   getModelType,
   getWebChatOptions,
-  getBoundConversation,
-  resolveConversationLeafMessageId,
   loadUploadLimits: loadDeepSeekUploadLimits,
   refreshUploadLimits: refreshDeepSeekPageUploadLimits,
   buildPrompt: buildSidepanelPrompt,
@@ -637,7 +633,6 @@ const runtimeCommandRegistry = createRuntimeCommandRegistry({
         getExtensionVersion,
         createExportId: () => crypto.randomUUID(),
         loadClientHeaders: loadOrRefreshClientHeaders,
-        getToolDescriptors: getRuntimeToolDescriptors,
         createTransport: ({ baseUrl, clientHeaders }) => (
           createDeepSeekConversationExportTransport({
             baseUrl,
