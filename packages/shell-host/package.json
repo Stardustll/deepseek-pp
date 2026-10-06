@@ -1,6 +1,6 @@
 {
   "name": "@tflystar/deepseek-pp-shell-host",
-  "version": "1.16.0",
+  "version": "1.16.1",
   "description": "Native Messaging Shell MCP host installer for DeepSeek++",
   "type": "module",
   "private": false,
