@@ -9,19 +9,44 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zhu1090093659/deepseek-pp/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/zhu1090093659/deepseek-pp?style=flat-square"></a>
-  <a href="https://github.com/zhu1090093659/deepseek-pp/watchers"><img alt="Watchers" src="https://img.shields.io/github/watchers/zhu1090093659/deepseek-pp?style=flat-square"></a>
-  <a href="https://github.com/zhu1090093659/deepseek-pp/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/zhu1090093659/deepseek-pp?style=flat-square"></a>
-  <a href="https://github.com/zhu1090093659/deepseek-pp/issues"><img alt="Issues" src="https://img.shields.io/github/issues/zhu1090093659/deepseek-pp?style=flat-square"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Stardustll/deepseek-pp?style=flat-square"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/watchers"><img alt="Watchers" src="https://img.shields.io/github/watchers/Stardustll/deepseek-pp?style=flat-square"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/Stardustll/deepseek-pp?style=flat-square"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/issues"><img alt="Issues" src="https://img.shields.io/github/issues/Stardustll/deepseek-pp?style=flat-square"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/zhu1090093659/deepseek-pp/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhu1090093659/deepseek-pp?style=flat-square&label=release"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Stardustll/deepseek-pp?style=flat-square&label=release"></a>
   <a href="https://chromewebstore.google.com/detail/deepseek++/kdmpkkahkhdmdhfkdihkopikgcocbpbf?hl=zh-CN"><img alt="Chrome Web Store" src="https://img.shields.io/badge/Chrome%20Web%20Store-available-16a34a?style=flat-square"></a>
   <a href="#license"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-2563eb?style=flat-square"></a>
   <a href="https://chat.deepseek.com"><img alt="DeepSeek" src="https://img.shields.io/badge/DeepSeek-web-4f46e5?style=flat-square"></a>
   <a href="https://linux.do"><img alt="LINUX DO" src="https://img.shields.io/badge/LINUX-DO-f59e0b?style=flat-square"></a>
 </p>
+
+> **关于本仓库（二开说明）**
+>
+> 本项目是 [zhu1090093659/deepseek-pp](https://github.com/zhu1090093659/deepseek-pp) 的二次开发分支，由
+> [Stardustll/deepseek-pp](https://github.com/Stardustll/deepseek-pp) 维护。上游项目仍是本扩展的原创作者与主要功能来源；
+> 本分支在其基础上跟进 DeepSeek 官网改版、调整侧边栏对话体验，并独立发布版本。
+>
+> 两者相互独立，请按来源选择：
+>
+> | 你要找的 | 去哪 |
+> |---|---|
+> | 本分支的版本、更新说明与问题反馈 | [Stardustll/deepseek-pp](https://github.com/Stardustll/deepseek-pp) |
+> | Shell Host 安装包（npm） | [`@tflystar/deepseek-pp-shell-host`](https://www.npmjs.com/package/@tflystar/deepseek-pp-shell-host) |
+> | 上游原项目 | [zhu1090093659/deepseek-pp](https://github.com/zhu1090093659/deepseek-pp) |
+>
+> 本分支相对上游的主要差异：
+>
+> - **跟进官网改版**：官网已将快速/专家/识图合并为单一模型，附件放开为文档与代码等多类文件；本分支同步对齐。
+> - **侧边栏对话模式开关**：按官网输入框样式重做「深度思考」「联网搜索」，收进输入框左下角设置按钮。
+> - **对话记录本地保留**：侧边栏对话保存在本机，刷新或重开不再丢失，可在历史列表查看、切换、删除或清空。
+> - **移除官网会话同步**：从扩展侧读取或续接官网账号会话存在账号风险，本分支整条移除，对话连续性改由本地记录提供。
+> - **Markdown 完整渲染**：补齐 GFM 支持（表格、任务列表、删除线等），并修正此前未生效的排版样式。
+>
+> 除上述差异外，功能、文档与许可协议均与上游保持一致。
+
 
 <p align="center">
   <a href="README_EN.md">English README</a> ·
@@ -29,7 +54,7 @@
   <a href="#功能速览">功能速览</a> ·
   <a href="#适合场景">适合场景</a> ·
   <a href="#安装">安装</a> ·
-  <a href="#1140-变更回顾">1.14.0 变更</a>
+  <a href="#1161-变更回顾">1.16.1 变更</a>
 </p>
 
 ## 产品定位
@@ -46,7 +71,7 @@ DeepSeek++ 是面向 [DeepSeek](https://chat.deepseek.com) 网页版的开源浏
 - [功能速览](#功能速览)
 - [适合场景](#适合场景)
 - [核心功能](#核心功能)
-- [1.14.0 变更回顾](#1140-变更回顾)
+- [1.16.1 变更回顾](#1161-变更回顾)
 - [安装](#安装)
 - [友情链接](#友情链接)
 
@@ -304,6 +329,43 @@ npm run shell:install -- --browser chrome --extension-id <扩展ID>
 <p align="center">
   <img src="assets/screenshot-sidepanel-automation.png" width="300" alt="自动化任务侧边栏">
 </p>
+
+## 1.16.1 变更回顾
+
+1.16.1 是发布流程修复版本：Shell Host 的 npm 包改用本账号的 scoped 名，并把发布认证从长期 token 换成 OIDC trusted publishing。
+
+| 方向 | 主要变化 |
+|------|----------|
+| Shell Host 包名 | `deepseek-pp-shell-host` → `@tflystar/deepseek-pp-shell-host`。原名已被其他维护者占用，无法在本账号下发布；可执行文件名保持 `deepseek-pp-shell-host` 不变，已安装用户的命令与 PATH 不受影响。 |
+| 发布认证 | 改用 npm trusted publishing（OIDC），仓库不再保存长期写权限 token，每次发布使用短时签名凭据，并附带可验证的 provenance 签名。 |
+| 修复 | 修复 Node 22 自带 npm 10.x 导致 trusted publishing 必然失败的问题（要求 npm CLI ≥ 11.5.1，工作流现会显式升级并在版本不足时报错）；修复发布后轮询过短导致的误报失败。 |
+| 权限变化 | Chrome、Edge 和 Firefox 均不新增浏览器权限。 |
+
+## 1.16.0 变更回顾
+
+1.16.0 是侧边栏对话体验版本：模式开关改为官网样式、对话记录本地保留并可查看删除、助手回答的 Markdown 完整渲染。
+
+| 方向 | 主要变化 |
+|------|----------|
+| 模式开关 | 「深度思考」「联网搜索」按官网输入框开关规格重做（34px 高、18px 圆角、13px/500，选中态使用官网色阶），并收进输入框左下角设置按钮内。 |
+| 本地对话记录 | 侧边栏对话自动保存在本机，刷新或重开侧边栏都会恢复；左下角历史按钮可列出本地对话、打开切换、单条删除、清空全部，删除只影响本机。 |
+| 标签页记忆 | 侧边栏重开后回到上次所在的标签页，不再总是跳回「对话」。 |
+| Markdown 渲染 | 补齐 GFM 支持（表格、删除线、任务列表、自动链接），并用主题样式取代未生效的 typography 类；标题层级、列表、引用、代码块、表格、链接在浅色与深色下均有正确样式。 |
+| 移除 | 官网会话读取与绑定整条移除（账号风险），对话连续性改由本地记录提供。 |
+| 权限变化 | Chrome、Edge 和 Firefox 均不新增浏览器权限。 |
+
+## 1.15.0 变更回顾
+
+1.15.0 跟进 DeepSeek 官网「模式合并 + 附件升级」改版，并补齐侧边栏的对话模式开关与附件能力。
+
+| 方向 | 主要变化 |
+|------|----------|
+| 模型类型收敛 | 官网已将快速/专家/识图合并为单一模型，`expert`/`vision`/`reasoner` 等别名统一归一为 `default`，模式意图改由 `thinking_enabled`/`search_enabled` 承载。 |
+| 模式开关 | 侧边栏网页对话新增「深度思考」「联网搜索」开关；开启联网时把扩展自带的 `web_search`/`web_fetch` 从模型可见工具目录移除，交给页面原生搜索，避免两个搜索器并存。 |
+| 附件上传 | 以官网运行时配置为真源派生可接受扩展名与大小上限，不再硬编码「仅图片 + 8 MiB」；配置不可用时 fail-closed 回退并记录原因。侧边栏支持非图片附件。 |
+| 输入框定位 | 官网移除了 `#chat-input` id，改按页面占位文案识别输入框；页面出现多个 textarea 时不再静默选中错误的那个。 |
+| 主题联动 | 官网深色标记迁移为 `body` 的 `light`/`dark` class，扩展同步跟进并保留旧属性兜底。 |
+| 权限变化 | Chrome、Edge 和 Firefox 均不新增浏览器权限。 |
 
 ## 1.14.0 变更回顾
 

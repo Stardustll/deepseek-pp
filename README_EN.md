@@ -9,19 +9,50 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zhu1090093659/deepseek-pp/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/zhu1090093659/deepseek-pp?style=flat-square"></a>
-  <a href="https://github.com/zhu1090093659/deepseek-pp/watchers"><img alt="Watchers" src="https://img.shields.io/github/watchers/zhu1090093659/deepseek-pp?style=flat-square"></a>
-  <a href="https://github.com/zhu1090093659/deepseek-pp/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/zhu1090093659/deepseek-pp?style=flat-square"></a>
-  <a href="https://github.com/zhu1090093659/deepseek-pp/issues"><img alt="Issues" src="https://img.shields.io/github/issues/zhu1090093659/deepseek-pp?style=flat-square"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Stardustll/deepseek-pp?style=flat-square"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/watchers"><img alt="Watchers" src="https://img.shields.io/github/watchers/Stardustll/deepseek-pp?style=flat-square"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/Stardustll/deepseek-pp?style=flat-square"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/issues"><img alt="Issues" src="https://img.shields.io/github/issues/Stardustll/deepseek-pp?style=flat-square"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/zhu1090093659/deepseek-pp/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhu1090093659/deepseek-pp?style=flat-square&label=release"></a>
+  <a href="https://github.com/Stardustll/deepseek-pp/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Stardustll/deepseek-pp?style=flat-square&label=release"></a>
   <a href="https://chromewebstore.google.com/detail/deepseek++/kdmpkkahkhdmdhfkdihkopikgcocbpbf?hl=zh-CN"><img alt="Chrome Web Store" src="https://img.shields.io/badge/Chrome%20Web%20Store-available-16a34a?style=flat-square"></a>
   <a href="#license"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-2563eb?style=flat-square"></a>
   <a href="https://chat.deepseek.com"><img alt="DeepSeek" src="https://img.shields.io/badge/DeepSeek-web-4f46e5?style=flat-square"></a>
   <a href="https://linux.do"><img alt="LINUX DO" src="https://img.shields.io/badge/LINUX-DO-f59e0b?style=flat-square"></a>
 </p>
+
+> **About this repository (fork notice)**
+>
+> This project is a fork of [zhu1090093659/deepseek-pp](https://github.com/zhu1090093659/deepseek-pp), maintained at
+> [Stardustll/deepseek-pp](https://github.com/Stardustll/deepseek-pp). The upstream project is the original author and the
+> source of most functionality; this fork tracks DeepSeek's site changes, reworks the sidepanel chat experience, and
+> publishes its own releases.
+>
+> The two are independent. Pick by what you need:
+>
+> | You want | Go to |
+> |---|---|
+> | This fork's releases, notes, and issue reports | [Stardustll/deepseek-pp](https://github.com/Stardustll/deepseek-pp) |
+> | Shell Host installer (npm) | [`@tflystar/deepseek-pp-shell-host`](https://www.npmjs.com/package/@tflystar/deepseek-pp-shell-host) |
+> | The upstream original | [zhu1090093659/deepseek-pp](https://github.com/zhu1090093659/deepseek-pp) |
+>
+> How this fork differs from upstream:
+>
+> - **Follows the site redesign**: DeepSeek merged its fast/expert/image modes into one model and opened attachments to
+>   documents and code files; this fork matches that.
+> - **Sidepanel mode switches**: DeepThink and Web search are rebuilt to match the page composer's own switch styling and
+>   moved behind the settings button at the composer's bottom-left.
+> - **Local conversation history**: sidepanel conversations are kept on this device and survive a reload or reopen, with a
+>   history list to review, switch, delete, or clear them.
+> - **Account conversation sync removed**: driving a signed-in DeepSeek conversation from the extension risks the account,
+>   so this fork drops it entirely; continuity comes from the local record instead.
+> - **Full Markdown rendering**: GFM support (tables, task lists, strikethrough) plus working typography, replacing styles
+>   that previously had no effect.
+>
+> Beyond those differences, functionality, documentation, and licensing match upstream.
+
 
 <p align="center">
   <a href="README.md">Chinese README</a> ·
@@ -29,7 +60,7 @@
   <a href="#feature-overview">Feature Overview</a> ·
   <a href="#use-cases">Use Cases</a> ·
   <a href="#installation">Installation</a> ·
-  <a href="#1140-release-highlights">1.14.0 Highlights</a>
+  <a href="#1161-release-highlights">1.16.1 Highlights</a>
 </p>
 
 ## Product Positioning
@@ -46,7 +77,7 @@ Language can follow the browser or be set to English or Simplified Chinese. Deep
 - [Feature Overview](#feature-overview)
 - [Use Cases](#use-cases)
 - [Core Features](#core-features)
-- [1.14.0 Release Highlights](#1140-release-highlights)
+- [1.16.1 Release Highlights](#1161-release-highlights)
 - [Installation](#installation)
 - [Friendly Links](#friendly-links)
 
@@ -304,6 +335,43 @@ npm run shell:install -- --browser chrome --extension-id <extension-id>
 <p align="center">
   <img src="assets/screenshot-sidepanel-automation.png" width="300" alt="Automation task side panel">
 </p>
+
+## 1.16.1 Release Highlights
+
+1.16.1 is a release-pipeline fix: the Shell Host npm package moves to this account's scoped name and publishing switches from a long-lived token to OIDC trusted publishing.
+
+| Area | What changed |
+|------|--------------|
+| Shell Host package name | `deepseek-pp-shell-host` → `@tflystar/deepseek-pp-shell-host`. The old name is taken by another maintainer and cannot be published under this account. The executable name stays `deepseek-pp-shell-host`, so existing PATH entries and documented commands keep working. |
+| Publishing auth | Switched to npm trusted publishing (OIDC). No long-lived write token is stored in the repository; each release uses short-lived signed credentials and carries a verifiable provenance statement. |
+| Fixes | Fixed trusted publishing failing on Node 22, which bundles npm 10.x while the feature needs npm CLI >= 11.5.1 (the workflow now upgrades explicitly and fails loudly if the version is too low); fixed a post-publish poll that was too short and reported a false failure for a publish that had succeeded. |
+| Permissions | No new browser permissions on Chrome, Edge, or Firefox. |
+
+## 1.16.0 Release Highlights
+
+1.16.0 reworks the sidepanel chat experience: official-style mode switches, locally retained conversations with a review/delete list, and full Markdown rendering for assistant answers.
+
+| Area | What changed |
+|------|--------------|
+| Mode switches | DeepThink and Web search are rebuilt to the page composer's own switch spec (34px tall, 18px radius, 13px/500, selected state using the site's colour scale) and moved behind the settings button at the composer's bottom-left. |
+| Local conversation history | Sidepanel conversations are saved on this device and restored after a reload or reopen. The history button lists them, and supports opening, switching, deleting one, or clearing all; deletion only affects this device. |
+| Tab memory | The sidepanel reopens on the tab you were last on instead of always snapping back to Chat. |
+| Markdown rendering | Added GFM support (tables, strikethrough, task lists, autolinks) and replaced typography classes that had no effect; headings, lists, quotes, code blocks, tables, and links now render correctly in both light and dark themes. |
+| Removed | Account conversation reading and binding removed entirely (account risk); continuity comes from the local record instead. |
+| Permissions | No new browser permissions on Chrome, Edge, or Firefox. |
+
+## 1.15.0 Release Highlights
+
+1.15.0 follows DeepSeek's mode-merge and attachment upgrade, and completes the sidepanel's chat mode switches and attachment support.
+
+| Area | What changed |
+|------|--------------|
+| Model consolidation | The site merged fast/expert/image modes into one model, so `expert`/`vision`/`reasoner` aliases all normalise to `default` and mode intent travels on `thinking_enabled`/`search_enabled`. |
+| Mode switches | Sidepanel web chat gains DeepThink and Web search switches. With search on, the extension's own `web_search`/`web_fetch` leave the model-facing catalog so the page's native search is not fought by a second searcher. |
+| Attachments | Accepted extensions and size limits are derived from the page's own runtime config instead of a hardcoded image-only 8 MiB rule; an unreadable config falls back closed and logs why. Non-image attachments are supported. |
+| Composer targeting | The page dropped its `#chat-input` id, so the composer is found by its placeholder text; multiple textareas no longer silently select the wrong one. |
+| Theme | The site moved its dark marker to a `light`/`dark` class on `body`; the extension follows, keeping the old attribute as a fallback. |
+| Permissions | No new browser permissions on Chrome, Edge, or Firefox. |
 
 ## 1.14.0 Release Highlights
 
