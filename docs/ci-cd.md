@@ -26,6 +26,37 @@ before merge. The job runs:
    Chrome zip, Edge zip, Firefox zip, and source zip.
 5. Confirm the remote GitHub Release and assets before treating the release as closed.
 
+## Shell Host npm Publish (trusted publishing)
+
+`packages/shell-host` is published from `release.yml` using npm **trusted
+publishing** (OIDC). No long-lived npm token is stored in this repository.
+
+Setup that must exist outside the repository:
+
+1. On npmjs.com, open the package's settings and add a **Trusted Publisher** for
+   GitHub Actions with:
+   - Organization or user: the repository owner
+   - Repository: this repository's name
+   - Workflow filename: `release.yml` (filename only, with the extension)
+2. Enable the **`npm publish`** allowed action for that publisher. `npm stage
+   publish` is always permitted; direct publishing is a separate opt-in.
+
+What the workflow needs, and why:
+
+- `permissions: id-token: write` — the OIDC token itself. The job-level
+  `permissions` block replaces the workflow-level one, so `contents: write` is
+  repeated there deliberately.
+- `npm install --global npm@^11` — trusted publishing requires npm CLI
+  **>= 11.5.1**, but Node 22 bundles npm 10.x. The publish step re-checks the
+  version and fails loudly rather than silently falling back to token auth.
+- The `_authToken` line is stripped from `.npmrc` — `actions/setup-node` writes
+  `_authToken=${NODE_AUTH_TOKEN}` for `registry-url`, and with OIDC there is no
+  such secret, so the unresolved placeholder would abort before the OIDC
+  exchange runs.
+
+Do not add an `NPM_TOKEN` secret: an empty `NODE_AUTH_TOKEN` in the environment
+is what breaks the exchange.
+
 ## Chrome Web Store Flow
 
 `.github/workflows/chrome-web-store.yml` is manual by design. It runs the same

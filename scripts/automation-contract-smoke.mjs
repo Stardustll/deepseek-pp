@@ -102,7 +102,14 @@ assertContains('packages/shell-host/native/os-adapter.mjs', 'getExplicitPathOver
 assertContains('packages/shell-host/native/process-provider.mjs', 'windowsVersion');
 assertContains('packages/shell-host/lib/officecli-installer.mjs', 'OFFICECLI_REQUIRED_HELP_PATTERNS');
 assertContains('.github/workflows/release.yml', 'npm publish --workspace packages/shell-host --access public');
-assertContains('.github/workflows/release.yml', 'NPM_TOKEN secret is required');
+// The publish authenticates through OIDC trusted publishing, not a stored
+// token, so pin the two things that make that work: the id-token permission and
+// the npm floor the CLI needs.
+assertContains('.github/workflows/release.yml', 'id-token: write');
+assertContains('.github/workflows/release.yml', 'npm install --global npm@^11');
+// The bare name may appear in explanatory comments; what must never come back is
+// the environment binding, which is what breaks the OIDC exchange.
+assertNotContains('.github/workflows/release.yml', 'NODE_AUTH_TOKEN: ${{');
 assertNotContains('README.md', ['Agent', '任务'].join(' '));
 assertNotContains('README.md', ['screenshot-sidepanel', 'agent.svg'].join('-'));
 

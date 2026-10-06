@@ -22,6 +22,12 @@ jobs:
   release:
     name: Build and publish release
     runs-on: ubuntu-latest
+    # id-token: write is what lets npm authenticate through OIDC instead of a
+    # long-lived NPM_TOKEN. This block replaces the workflow-level permissions,
+    # so contents: write is repeated deliberately.
+    permissions:
+      contents: write
+      id-token: write
 
     steps:
       - name: Checkout
@@ -55,6 +61,23 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      - name: Upgrade npm for trusted publishing
+        # Trusted publishing requires npm CLI >= 11.5.1, but Node 22 bundles npm
+        # 10.x. Pinned to a major so the floor is explicit and testable.
+        run: npm install --global npm@^11
+
+      - name: Drop the token placeholder from .npmrc
+        # setup-node writes `_authToken=${NODE_AUTH_TOKEN}` for registry-url. With
+        # OIDC there is no such secret, and an unresolved placeholder makes npm
+        # fail before it ever tries the OIDC exchange.
+        shell: bash
+        run: |
+          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$npmrc" ]; then
+            grep -v '_authToken' "$npmrc" > "$npmrc.tmp" || true
+            mv "$npmrc.tmp" "$npmrc"
+          fi
+
       - name: Setup Go for actionlint
         uses: actions/setup-go@v5
         with:
@@ -74,7 +97,6 @@ jobs:
       - name: Publish Shell Host npm package
         shell: bash
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           TAG="${INPUT_TAG:-${GITHUB_REF_NAME}}"
@@ -116,11 +138,25 @@ jobs:
             exit 0
           fi
 
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN secret is required because @tflystar/deepseek-pp-shell-host@$VERSION is not published." >&2
+          # Fail loudly rather than silently falling back to token auth: trusted
+          # publishing needs npm >= 11.5.1.
+          NPM_VERSION="$(npm --version)"
+          NPM_MAJOR="${NPM_VERSION%%.*}"
+          NPM_REST="${NPM_VERSION#*.}"
+          NPM_MINOR="${NPM_REST%%.*}"
+          NPM_PATCH="${NPM_REST#*.}"
+          NPM_PATCH="${NPM_PATCH%%[!0-9]*}"
+          [ -n "$NPM_PATCH" ] || NPM_PATCH=0
+          if [ "$NPM_MAJOR" -lt 11 ] \
+            || { [ "$NPM_MAJOR" -eq 11 ] && [ "$NPM_MINOR" -lt 5 ]; } \
+            || { [ "$NPM_MAJOR" -eq 11 ] && [ "$NPM_MINOR" -eq 5 ] && [ "$NPM_PATCH" -lt 1 ]; }; then
+            echo "npm $NPM_VERSION is too old for trusted publishing (need >= 11.5.1)." >&2
             exit 1
           fi
 
+          # Authentication comes from the workflow's OIDC identity, which the
+          # package's trusted-publisher entry on npmjs.com must authorize for
+          # this exact repository + workflow filename.
           npm publish --workspace packages/shell-host --access public
           if ! wait_for_published_version 12; then
             echo "npm publish completed but registry does not expose @tflystar/deepseek-pp-shell-host@$VERSION" >&2
