@@ -1,9 +1,9 @@
-# deepseek-pp-shell-host
+# @tflystar/deepseek-pp-shell-host
 
 Native Messaging Shell MCP host installer for DeepSeek++.
 
 ```bash
-npx deepseek-pp-shell-host install --browser chrome --extension-id <extension-id>
+npx @tflystar/deepseek-pp-shell-host install --browser chrome --extension-id <extension-id>
 ```
 
 The installer writes the browser Native Messaging manifest, installs the Shell MCP host into the user's profile directory, and installs command-based OfficeCLI by default.
@@ -11,6 +11,6 @@ The installer writes the browser Native Messaging manifest, installs the Shell M
 Useful commands:
 
 ```bash
-npx deepseek-pp-shell-host status --browser chrome
-npx deepseek-pp-shell-host uninstall --browser chrome
+npx @tflystar/deepseek-pp-shell-host status --browser chrome
+npx @tflystar/deepseek-pp-shell-host uninstall --browser chrome
 ```

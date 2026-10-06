@@ -237,7 +237,7 @@ npm run multimodal:install -- --browser chrome --extension-id <扩展ID>
 - **第三方 Skill 库** — 内置 OfficeCLI 的 DOCX、XLSX、PPTX、Pitch Deck、Academic Paper、Financial Model、Dashboard、Morph PPT 等场景技能
 - **第三方样式库** — 内置 OfficeCLI PPT styles 索引和样式说明，可用 `/officecli-pptx /officecli-styles ...` 链式加载完整视觉风格
 - **通过 Shell MCP 执行** — 侧边栏创建 `Shell` 预设后，模型通过 `shell_exec` 调用本机命令版 OfficeCLI
-- **自动安装命令版** — `deepseek-pp-shell-host` 会按系统和 CPU 架构从 iOfficeAI/OfficeCLI 发布资产安装单二进制
+- **自动安装命令版** — `@tflystar/deepseek-pp-shell-host` 会按系统和 CPU 架构从 iOfficeAI/OfficeCLI 发布资产安装单二进制
 - **命令版优先** — skill 会先检查 `officecli --help` 是否包含 `view/get/set/batch` 等脚本化命令
 - **拒绝额度生成路径** — 如果当前二进制只有 `new --prompt` 这类 hosted AI 生成能力，skill 会停止并提示切换 OfficeCLI 二进制
 - **真实本机路径** — 文档路径由用户提供或通过 Shell MCP 查询，不猜测占位目录
@@ -245,7 +245,7 @@ npm run multimodal:install -- --browser chrome --extension-id <扩展ID>
 安装 Shell Native Host：
 
 ```bash
-npx deepseek-pp-shell-host install --browser chrome --extension-id <扩展ID>
+npx @tflystar/deepseek-pp-shell-host install --browser chrome --extension-id <扩展ID>
 ```
 
 侧边栏 `MCP` 页会自动填入当前扩展 ID。这个命令会同时安装 Shell Native Host 和命令版 OfficeCLI；Shell MCP 会启用本机命令执行能力。安装后重启浏览器，然后在侧边栏 `MCP` 页点击 `Shell` 创建预设，点击测试和刷新工具。命令版 OfficeCLI 可继续使用 `create/get/set/view/batch/validate` 等脚本化命令，不走 `new --prompt` 的 hosted 生成额度。

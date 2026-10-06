@@ -48,7 +48,7 @@ OfficeCLI document work now uses the Shell Native Messaging MCP host. The browse
 Install the native host and command-based OfficeCLI:
 
 ```bash
-npx deepseek-pp-shell-host install --browser chrome --extension-id <extension-id>
+npx @tflystar/deepseek-pp-shell-host install --browser chrome --extension-id <extension-id>
 ```
 
 Use `--browser edge`, `--browser chromium`, or `--browser firefox` for those targets. Firefox uses its fixed extension ID and does not need `--extension-id`. The installer detects the user's OS/CPU, installs the Shell Native Host into the user's profile directory, downloads the matching single-binary asset from `iOfficeAI/OfficeCLI`, verifies `SHA256SUMS` when available, and installs OfficeCLI to `~/.local/bin/officecli` on macOS/Linux or `%LOCALAPPDATA%\OfficeCLI\officecli.exe` on Windows. Pass `--skip-officecli` only when OfficeCLI is managed separately.
@@ -116,9 +116,9 @@ Use the printed URL as a Streamable HTTP MCP server in the sidepanel.
 - Tool is discovered but not injected: check server enabled state, execution mode, and per-tool allow/deny state.
 - Tool executes once but does not continue: verify the current DeepSeek page has the latest extension content script. Manual chat and automation continuations may continue MCP tool calls for up to 3 rounds when tool schemas are still available.
 - Stdio server does not start: verify the bridge process, command, args, cwd, and env. The extension itself does not launch stdio processes directly.
-- `mcp_native_host_unavailable`: run `npx deepseek-pp-shell-host install ...`, then restart the browser.
-- `Access to the specified native messaging host is forbidden`: the host is installed but the manifest does not allow the current extension ID; rerun `npx deepseek-pp-shell-host install ...` with the ID shown in the MCP sidepanel.
-- `officecli: command not found`: rerun `npx deepseek-pp-shell-host install ...` or place command-based OfficeCLI under `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, or `%LOCALAPPDATA%\OfficeCLI`.
+- `mcp_native_host_unavailable`: run `npx @tflystar/deepseek-pp-shell-host install ...`, then restart the browser.
+- `Access to the specified native messaging host is forbidden`: the host is installed but the manifest does not allow the current extension ID; rerun `npx @tflystar/deepseek-pp-shell-host install ...` with the ID shown in the MCP sidepanel.
+- `officecli: command not found`: rerun `npx @tflystar/deepseek-pp-shell-host install ...` or place command-based OfficeCLI under `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, or `%LOCALAPPDATA%\OfficeCLI`.
 - OfficeCLI help only shows hosted generation commands: the wrong binary is first on `PATH`; remove the npm wrapper from the project or put the command-based binary earlier on `PATH`.
 - `officecli_file_locked`: close the document in other OfficeCLI resident/watch sessions or external editors, then retry.
 - Visible `<shell_exec>` text in the chat with no tool card means the current DeepSeek page did not execute that tag. Refresh the DeepSeek page after reloading the extension or refreshing MCP tools so the content script receives the latest tool descriptor list.

@@ -92,7 +92,7 @@ jobs:
           fi
 
           read_published_version() {
-            npm view "deepseek-pp-shell-host@$VERSION" version --prefer-online 2>/dev/null || true
+            npm view "@tflystar/deepseek-pp-shell-host@$VERSION" version --prefer-online 2>/dev/null || true
           }
 
           wait_for_published_version() {
@@ -112,18 +112,18 @@ jobs:
           }
 
           if wait_for_published_version 1; then
-            echo "deepseek-pp-shell-host@$VERSION is already published"
+            echo "@tflystar/deepseek-pp-shell-host@$VERSION is already published"
             exit 0
           fi
 
           if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN secret is required because deepseek-pp-shell-host@$VERSION is not published." >&2
+            echo "NPM_TOKEN secret is required because @tflystar/deepseek-pp-shell-host@$VERSION is not published." >&2
             exit 1
           fi
 
           npm publish --workspace packages/shell-host --access public
           if ! wait_for_published_version 12; then
-            echo "npm publish completed but registry does not expose deepseek-pp-shell-host@$VERSION" >&2
+            echo "npm publish completed but registry does not expose @tflystar/deepseek-pp-shell-host@$VERSION" >&2
             exit 1
           fi
 

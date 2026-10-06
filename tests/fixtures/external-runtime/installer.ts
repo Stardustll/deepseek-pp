@@ -1,6 +1,6 @@
 export const SHELL_HOST_CONTRACT = {
   nativeHost: 'com.deepseek_pp.shell',
-  packageName: 'deepseek-pp-shell-host',
+  packageName: '@tflystar/deepseek-pp-shell-host',
   nodeEngine: '>=18.17',
   firefoxExtensionId: 'deepseek-pp@zhu1090093659.github',
   browsers: ['chrome', 'chromium', 'edge', 'firefox'],

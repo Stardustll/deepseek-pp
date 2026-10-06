@@ -1498,7 +1498,7 @@ function shellInstallCommand(): {
   const extensionArg = usesExtensionId ? ` --extension-id ${chrome.runtime.id || '<extension-id>'}` : '';
   const installArgs = `install --browser ${browser}${extensionArg} --skip-officecli`;
   const localCommand = `npm run shell:install -- ${installArgs}`;
-  const publishedCommand = `npx deepseek-pp-shell-host ${installArgs}`;
+  const publishedCommand = `npx @tflystar/deepseek-pp-shell-host ${installArgs}`;
 
   if (isUnpackedExtension()) {
     return { browser, command: localCommand, fallbackCommand: publishedCommand, usesExtensionId, mode: 'local' };

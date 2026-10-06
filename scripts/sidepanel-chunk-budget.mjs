@@ -180,8 +180,14 @@ const BUDGET = Object.freeze({
   firstChatScreen: { raw: 432_485, gzip: 131_640 },
   // Raised from 120000/36000 by the GFM Markdown work: `remark-gfm` (tables,
   // strikethrough, task lists, autolinks) joins the LAZY rich-renderer chunk,
-  // so it never reaches the initial shell. Measured 154132 raw / 45453 gzip.
-  richRendererIncrement: { raw: 154_132, gzip: 45_453 },
+  // so it never reaches the initial shell. Measured 154132 raw / 45453 gzip;
+  // the gzip cap carries the same encoder-variance allowance as the initial
+  // shell, because a 1-byte zlib difference between runtimes would otherwise
+  // make this gate flaky for byte-identical output.
+  richRendererIncrement: {
+    raw: 154_132,
+    gzip: 45_453 + GZIP_ENCODER_VARIANCE_BYTES,
+  },
   routeChunks: {
     // Raised again by the same change (mode toggles + conversation picker):
     // measured 33970 raw / 9565 gzip.

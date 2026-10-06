@@ -78,9 +78,9 @@ function printHelp() {
   console.log(`DeepSeek++ Shell Native Host installer
 
 Usage:
-  deepseek-pp-shell-host install --browser chrome --extension-id <extension-id>
-  deepseek-pp-shell-host status --browser chrome
-  deepseek-pp-shell-host uninstall --browser chrome
+  @tflystar/deepseek-pp-shell-host install --browser chrome --extension-id <extension-id>
+  @tflystar/deepseek-pp-shell-host status --browser chrome
+  @tflystar/deepseek-pp-shell-host uninstall --browser chrome
 
 Commands:
   install              Install the Shell Native Host and OfficeCLI
@@ -96,9 +96,9 @@ Options:
   --help               Show this help
 
 Examples:
-  npx deepseek-pp-shell-host install --browser chrome --extension-id abcdefghijklmnopqrstuvwxyz123456
-  npx deepseek-pp-shell-host install --browser chrome --extension-id abcdefghijklmnopqrstuvwxyz123456 --log-file "$HOME/dpp-host.log"
-  npx deepseek-pp-shell-host install --browser firefox
+  npx @tflystar/deepseek-pp-shell-host install --browser chrome --extension-id abcdefghijklmnopqrstuvwxyz123456
+  npx @tflystar/deepseek-pp-shell-host install --browser chrome --extension-id abcdefghijklmnopqrstuvwxyz123456 --log-file "$HOME/dpp-host.log"
+  npx @tflystar/deepseek-pp-shell-host install --browser firefox
 `);
 }
 
