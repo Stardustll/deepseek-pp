@@ -158,8 +158,12 @@ jobs:
           # package's trusted-publisher entry on npmjs.com must authorize for
           # this exact repository + workflow filename.
           npm publish --workspace packages/shell-host --access public
-          if ! wait_for_published_version 12; then
-            echo "npm publish completed but registry does not expose @tflystar/deepseek-pp-shell-host@$VERSION" >&2
+          # The registry now accepts the publish and processes it asynchronously
+          # ("Your package is being processed and may take a few minutes to
+          # become available"), so a short poll reports a false failure for a
+          # publish that actually succeeded. Wait up to 5 minutes.
+          if ! wait_for_published_version 60; then
+            echo "npm publish completed but registry does not expose @tflystar/deepseek-pp-shell-host@$VERSION after 5 minutes" >&2
             exit 1
           fi
 

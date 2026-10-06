@@ -107,6 +107,9 @@ assertContains('.github/workflows/release.yml', 'npm publish --workspace package
 // the npm floor the CLI needs.
 assertContains('.github/workflows/release.yml', 'id-token: write');
 assertContains('.github/workflows/release.yml', 'npm install --global npm@^11');
+// The registry processes publishes asynchronously, so the post-publish poll must
+// be long enough not to report a false failure for a successful publish.
+assertContains('.github/workflows/release.yml', 'wait_for_published_version 60');
 // The bare name may appear in explanatory comments; what must never come back is
 // the environment binding, which is what breaks the OIDC exchange.
 assertNotContains('.github/workflows/release.yml', 'NODE_AUTH_TOKEN: ${{');
