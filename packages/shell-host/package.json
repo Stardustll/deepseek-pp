@@ -2,6 +2,11 @@
   "name": "@tflystar/deepseek-pp-shell-host",
   "version": "1.16.1",
   "description": "Native Messaging Shell MCP host installer for DeepSeek++",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Stardustll/deepseek-pp.git",
+    "directory": "packages/shell-host"
+  },
   "type": "module",
   "private": false,
   "license": "Apache-2.0",

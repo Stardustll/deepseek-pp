@@ -1,6 +1,10 @@
 {
   "name": "deepseek-plus-plus",
   "description": "Agentic memory, skills, agentic execution, automation, and MCP tools for DeepSeek",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Stardustll/deepseek-pp.git"
+  },
   "private": true,
   "license": "Apache-2.0",
   "version": "1.16.1",
