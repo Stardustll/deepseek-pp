@@ -1400,6 +1400,149 @@ input[type='range'] {
   color: var(--ds-text);
 }
 
+/* Markdown rendering for assistant answers.
+   Scoped to .ds-chat-markdown so nothing leaks into the rest of the sidepanel,
+   and built on this project's tokens (--ds-*) rather than a typography plugin,
+   which is not installed. */
+.ds-chat-markdown {
+  font-size: 13px;
+  line-height: 1.72;
+  color: var(--ds-text);
+  word-break: break-word;
+}
+
+.ds-chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.ds-chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.ds-chat-markdown p,
+.ds-chat-markdown ul,
+.ds-chat-markdown ol,
+.ds-chat-markdown blockquote,
+.ds-chat-markdown table,
+.ds-chat-markdown pre {
+  margin: 0.6em 0;
+}
+
+.ds-chat-markdown h1,
+.ds-chat-markdown h2,
+.ds-chat-markdown h3,
+.ds-chat-markdown h4,
+.ds-chat-markdown h5,
+.ds-chat-markdown h6 {
+  margin: 1em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ds-chat-markdown h1 { font-size: 1.45em; }
+.ds-chat-markdown h2 { font-size: 1.28em; }
+.ds-chat-markdown h3 { font-size: 1.14em; }
+.ds-chat-markdown h4,
+.ds-chat-markdown h5,
+.ds-chat-markdown h6 { font-size: 1em; }
+
+.ds-chat-markdown ul,
+.ds-chat-markdown ol {
+  padding-left: 1.4em;
+}
+
+.ds-chat-markdown ul { list-style: disc; }
+.ds-chat-markdown ol { list-style: decimal; }
+.ds-chat-markdown li { margin: 0.25em 0; }
+.ds-chat-markdown li > ul,
+.ds-chat-markdown li > ol { margin: 0.25em 0; }
+
+/* GFM task lists render as checkbox inputs; keep them inline with the label. */
+.ds-chat-markdown li > input[type='checkbox'] {
+  margin-right: 0.4em;
+  vertical-align: middle;
+}
+
+.ds-chat-markdown a {
+  color: var(--ds-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ds-chat-markdown a:hover {
+  color: var(--ds-blue-hover);
+}
+
+.ds-chat-markdown strong { font-weight: 600; }
+.ds-chat-markdown em { font-style: italic; }
+.ds-chat-markdown del { text-decoration: line-through; opacity: 0.75; }
+
+.ds-chat-markdown hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid var(--ds-border);
+}
+
+.ds-chat-markdown blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--ds-border);
+  color: var(--ds-text-secondary);
+}
+
+/* Inline code only. Fenced blocks get their own surface below. */
+.ds-chat-markdown :not(pre) > code {
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.ds-chat-markdown pre {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--ds-border);
+  background: var(--ds-bg);
+  overflow-x: auto;
+}
+
+.ds-chat-markdown pre > code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.ds-chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  display: block;
+  overflow-x: auto;
+}
+
+.ds-chat-markdown th,
+.ds-chat-markdown td {
+  padding: 5px 8px;
+  border: 1px solid var(--ds-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ds-chat-markdown th {
+  background: var(--ds-surface);
+  font-weight: 600;
+}
+
+.ds-chat-markdown img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
 .ds-chat-thinking {
   margin-bottom: 8px;
   border-left: 2px solid var(--ds-border);

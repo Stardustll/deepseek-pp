@@ -79,16 +79,17 @@ export default function ChatMessage({
               </details>
             )}
             {message.text && (
-              <div className="prose prose-sm max-w-none [&_pre]:overflow-x-auto [&_pre]:p-3 [&_pre]:rounded-lg [&_pre]:bg-[var(--ds-bg)] [&_code]:text-sm">
-                <RichMessageErrorBoundary text={message.text}>
-                  <Suspense fallback={<PlainTextMessageContent text={message.text} />}>
-                    <RichMessageContent
-                      text={message.text}
-                      onRendered={onRichContentRendered}
-                    />
-                  </Suspense>
-                </RichMessageErrorBoundary>
-              </div>
+              // Styling lives on .ds-chat-markdown inside RichMessageContent; the
+              // previous `prose prose-sm` classes were inert because the Tailwind
+              // typography plugin is not installed.
+              <RichMessageErrorBoundary text={message.text}>
+                <Suspense fallback={<PlainTextMessageContent text={message.text} />}>
+                  <RichMessageContent
+                    text={message.text}
+                    onRendered={onRichContentRendered}
+                  />
+                </Suspense>
+              </RichMessageErrorBoundary>
             )}
           </>
         )}

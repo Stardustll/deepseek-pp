@@ -178,7 +178,10 @@ const BUDGET = Object.freeze({
   // Raised with the initial shell by the same change: measured 422570 raw /
   // 129193 gzip on local Node-22.22.2.
   firstChatScreen: { raw: 432_485, gzip: 131_640 },
-  richRendererIncrement: { raw: 120_000, gzip: 36_000 },
+  // Raised from 120000/36000 by the GFM Markdown work: `remark-gfm` (tables,
+  // strikethrough, task lists, autolinks) joins the LAZY rich-renderer chunk,
+  // so it never reaches the initial shell. Measured 154132 raw / 45453 gzip.
+  richRendererIncrement: { raw: 154_132, gzip: 45_453 },
   routeChunks: {
     // Raised again by the same change (mode toggles + conversation picker):
     // measured 33970 raw / 9565 gzip.
