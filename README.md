@@ -25,27 +25,8 @@
 
 > **关于本仓库（二开说明）**
 >
-> 本项目是 [zhu1090093659/deepseek-pp](https://github.com/zhu1090093659/deepseek-pp) 的二次开发分支，由
-> [Stardustll/deepseek-pp](https://github.com/Stardustll/deepseek-pp) 维护。上游项目仍是本扩展的原创作者与主要功能来源；
-> 本分支在其基础上跟进 DeepSeek 官网改版、调整侧边栏对话体验，并独立发布版本。
->
-> 两者相互独立，请按来源选择：
->
-> | 你要找的 | 去哪 |
-> |---|---|
-> | 本分支的版本、更新说明与问题反馈 | [Stardustll/deepseek-pp](https://github.com/Stardustll/deepseek-pp) |
-> | Shell Host 安装包（npm） | [`@tflystar/deepseek-pp-shell-host`](https://www.npmjs.com/package/@tflystar/deepseek-pp-shell-host) |
-> | 上游原项目 | [zhu1090093659/deepseek-pp](https://github.com/zhu1090093659/deepseek-pp) |
->
-> 本分支相对上游的主要差异：
->
-> - **跟进官网改版**：官网已将快速/专家/识图合并为单一模型，附件放开为文档与代码等多类文件；本分支同步对齐。
-> - **侧边栏对话模式开关**：按官网输入框样式重做「深度思考」「联网搜索」，收进输入框左下角设置按钮。
-> - **对话记录本地保留**：侧边栏对话保存在本机，刷新或重开不再丢失，可在历史列表查看、切换、删除或清空。
-> - **移除官网会话同步**：从扩展侧读取或续接官网账号会话存在账号风险，本分支整条移除，对话连续性改由本地记录提供。
-> - **Markdown 完整渲染**：补齐 GFM 支持（表格、任务列表、删除线等），并修正此前未生效的排版样式。
->
-> 除上述差异外，功能、文档与许可协议均与上游保持一致。
+> 本项目是 [zhu1090093659/deepseek-pp](https://github.com/zhu1090093659/deepseek-pp) 的二次开发分支。上游项目已归档，本分支在其基础上跟进 DeepSeek 官网改版、调整侧边栏对话体验，并独立发布版本。
+
 
 
 <p align="center">
